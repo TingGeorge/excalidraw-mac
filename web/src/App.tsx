@@ -49,9 +49,10 @@ function useTitlebarHoles() {
       const toolbar = document.querySelector(".App-toolbar")?.getBoundingClientRect();
       const title = document.querySelector<HTMLElement>(".mac-title");
       if (toolbar && title) {
+        // The group (menu button + name) ends 12 pt before the toolbar; the name needs ~48 pt.
         const room = Math.floor(toolbar.left - title.getBoundingClientRect().left - 12);
-        document.documentElement.style.setProperty("--mac-title-room", `${Math.max(0, room)}px`);
-        title.classList.toggle("mac-hidden", room < 48);
+        document.documentElement.style.setProperty("--mac-title-room", `${Math.max(36, room)}px`);
+        title.classList.toggle("mac-hidden", room < 44 + 48 + 14);
       }
       const key = JSON.stringify(rects);
       if (key !== last) {
@@ -85,20 +86,11 @@ const NewFileIcon = icon("M11.5 2.5H6a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 6 1
 const OpenIcon = icon("M2.5 5.5a1.5 1.5 0 0 1 1.5-1.5h3.5l1.5 1.5h7a1.5 1.5 0 0 1 1.5 1.5v7.5a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5z");
 const SaveIcon = icon("M4 3.5h9.5l3 3V16a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5zM6.5 3.5v4h6v-4M6.5 16.5v-5h7v5");
 const SaveAsIcon = icon("M4 3.5h9.5l3 3V9M9 16.5H4a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5M6.5 3.5v4h6v-4M12 16.5l.5-2 4-4 1.5 1.5-4 4z");
-const ExportIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
-    <path d="M3.5 15.5l4.5-4.5 4 4M13.5 13.5l2-2 5 5" />
-    <path d="M16 3v5M13.8 5.8L16 8l2.2-2.2" />
-  </svg>
+// The title bar row's own buttons use the toolbar's icon style: 16 pt, 20-unit grid, 1.25 stroke.
+const ExportIcon = icon(
+  "M9.5 3.5H5A1.5 1.5 0 0 0 3.5 5v10A1.5 1.5 0 0 0 5 16.5h10a1.5 1.5 0 0 0 1.5-1.5v-4.5M3.5 13l3.5-3.5 3.5 3.5M9.5 11.5l1.5-1.5 5.5 5.5M13 7l3.5-3.5M13 3.5h3.5V7",
 );
-
-const LibraryIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M4 4h4v16H4zM10 4h4v16h-4z" />
-    <path d="M16.5 5.5l3.5 1-3.8 13.5-3.4-1" />
-  </svg>
-);
+const LibraryIcon = icon("M3.5 3.5h3v13h-3zM8.5 3.5h3v13h-3zM13.5 4.5l2.8.8-3 11.4-2.8-.8z");
 type DocumentInfo = { name?: string; folder?: string; fullscreen?: boolean };
 
 export function App({ session, langCode }: { session: Session; langCode: string }) {
@@ -217,7 +209,7 @@ export function App({ session, langCode }: { session: Session; langCode: string 
             title={t.library}
             onClick={() => api?.toggleSidebar({ name: "default", tab: "library" })}
           >
-            <LibraryIcon />
+            {LibraryIcon}
           </button>
           <button
             className="mac-export"
@@ -225,7 +217,7 @@ export function App({ session, langCode }: { session: Session; langCode: string 
             title={t.export}
             onClick={() => api?.updateScene({ appState: { openDialog: { name: "imageExport" } } })}
           >
-            <ExportIcon />
+            {ExportIcon}
           </button>
         </div>
       )}
@@ -282,15 +274,17 @@ export function App({ session, langCode }: { session: Session; langCode: string 
         </WelcomeScreen.Center>
       </WelcomeScreen>
     </Excalidraw>
-    {info.name && (
-      <div className={`mac-title${theme === "dark" ? " dark" : ""}`}>
-        <div className="name">{info.name}</div>
-        <div className="folder">
-          {info.folder}
-          {dirty ? ` · ${t.edited}` : ""}
-        </div>
-      </div>
-    )}
+    <div className={`mac-title${theme === "dark" ? " dark" : ""}${info.name ? "" : " empty"}`}>
+      {info.name && (
+        <>
+          <div className="name">{info.name}</div>
+          <div className="folder">
+            {info.folder}
+            {dirty ? ` · ${t.edited}` : ""}
+          </div>
+        </>
+      )}
+    </div>
     {agentConnected && <div className={`agent-status${theme === "dark" ? " dark" : ""}`}>{t.agent}</div>}
     </>
   );

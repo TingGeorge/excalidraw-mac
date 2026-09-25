@@ -39,9 +39,20 @@
 .excalidraw .App-menu_top__left > :first-child {
   margin-left: calc(var(--mac-menu-left) - var(--mac-edge));
 }
+/* The menu button is a 32 pt button inside the frosted group it shares with the file name
+   (.mac-title below), like the tools in the toolbar and Library / Export on the right. */
 .excalidraw .main-menu-trigger {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
+  margin: 2px;
+  padding: 8px;
+  border-radius: 8px;
+  background-color: transparent;
+  box-shadow: none;
+}
+.excalidraw .main-menu-trigger svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* Toolbar: 36 pt = 32 pt buttons + 2 pt padding; inner corners follow the outer ones. */
@@ -122,9 +133,8 @@
   background: #34c759;
 }
 
-/* Toolbar, menu, zoom, undo/redo and help: frosted glass. */
+/* Toolbar, zoom, undo/redo and help: frosted glass. */
 .excalidraw .Island.App-toolbar,
-.excalidraw .main-menu-trigger,
 .excalidraw .help-icon,
 .excalidraw .zoom-actions,
 .excalidraw .undo-redo-buttons {
@@ -152,19 +162,30 @@
   background-color: rgba(255, 255, 255, 0.08) !important;
 }
 
-/* File name and folder, 12 pt after the menu button (the window's title). */
+/* Menu button + file name and folder (the window's title): one frosted group, 36 pt tall,
+   12 pt after the traffic lights. It sits under Excalidraw's UI layer, so the menu button
+   (in that layer) shows on top of it. */
 .mac-title {
   position: fixed;
   top: 8px;
-  left: calc(var(--mac-menu-left) + 36px + var(--mac-row-gap));
+  left: var(--mac-menu-left);
   height: 36px;
-  /* measured by the page: the room left of the toolbar (hidden when too narrow) */
-  max-width: var(--mac-title-room, 200px);
+  min-width: 36px;
+  box-sizing: border-box;
+  /* 2 pt + the 32 pt menu button + 10 pt, then the text */
+  padding: 0 14px 0 44px;
+  /* measured by the page: the room left of the toolbar (the text hides when too narrow) */
+  max-width: var(--mac-title-room, 240px);
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 1px;
   z-index: 3;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
   pointer-events: none;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", system-ui, sans-serif;
   line-height: 16px;
@@ -184,11 +205,19 @@
   line-height: 14px;
   color: #86868b;
 }
-.mac-title.mac-hidden {
-  visibility: hidden;
+.mac-title.mac-hidden,
+.mac-title.empty {
+  width: 36px;
+  padding: 0;
+}
+.mac-title.mac-hidden > div,
+.mac-title.empty > div {
+  display: none;
 }
 .mac-title.dark {
   color: #ececf1;
+  background-color: rgba(44, 44, 50, 0.8);
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 .mac-title.dark .folder {
   color: #98989f;
