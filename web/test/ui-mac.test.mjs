@@ -42,7 +42,7 @@ test("title bar row of the drawing window", { skip: !(HOME && APP) && "needs the
   const d = await bridge("diagnostics");
   assert.ok(win.visible, "drawing window is showing");
   assert.equal(win.visibleWindows, 1, "the start screen is not showing next to the drawing");
-  for (const [k, r] of Object.entries(d.rects)) assert.ok(r, `${k} is on screen`);
+  for (const k of ["toolbar", "rectangleTool", "menu", "library"]) assert.ok(d.rects[k], `${k} is on screen`);
   console.log("window", win, "toolbar", d.rects.toolbar);
 
   await t.test("the toolbar sits in the title bar row", () => {
@@ -57,18 +57,20 @@ test("title bar row of the drawing window", { skip: !(HOME && APP) && "needs the
     assert.equal((await bridge("diagnostics")).activeTool, "rectangle");
   });
 
-  await t.test("the Library button opens and closes the library", async () => {
+  await t.test("the Library button opens the library; its × closes it", async () => {
     mouse("click", ...centre(win, d.rects.library));
     await sleep(700);
-    assert.equal((await bridge("diagnostics")).sidebarOpen, true);
-    const again = (await bridge("diagnostics")).rects.library;
-    mouse("click", ...centre(win, again ?? d.rects.library));
+    const open = await bridge("diagnostics");
+    assert.equal(open.sidebarOpen, true);
+    assert.ok(open.rects.sidebarClose, "close button on screen");
+    mouse("click", ...centre(win, open.rects.sidebarClose));
     await sleep(700);
     assert.equal((await bridge("diagnostics")).sidebarOpen, false);
   });
 
-  await t.test("the empty part of the row drags the window", async () => {
-    const x = win.x + d.rects.toolbar.x + d.rects.toolbar.width + 40;
+  await t.test("the empty part of the row (the file name) drags the window", async () => {
+    // between the menu button and the toolbar, where the file name is
+    const x = win.x + (d.rects.menu.x + d.rects.menu.width + d.rects.toolbar.x) / 2;
     const y = win.y + 26;
     mouse("drag", x, y, x + 120, y + 60);
     await sleep(700);

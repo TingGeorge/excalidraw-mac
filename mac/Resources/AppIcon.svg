@@ -1,39 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Excalidraw for Mac app icon ("pen tip"): light lavender tile on the macOS icon grid
+       (824×824 body, 100 px margin), a pencil drawing a line. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#7c78ec"/>
-      <stop offset="1" stop-color="#5550c9"/>
-    </linearGradient>
+    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f8f7ff"></stop><stop offset="1" stop-color="#e6e4ff"></stop></linearGradient>
     <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
-      <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#000" flood-opacity="0.28"/>
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#1c1c3a" flood-opacity="0.22"></feDropShadow>
     </filter>
   </defs>
-  <!-- macOS icon grid: 824×824 body, 100px margin -->
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#shadow)"/>
-  <g fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round">
-    <!-- hand-drawn box: each side drawn twice, slightly off, like Excalidraw's rough style -->
-    <g stroke-width="26">
-      <path d="M232 318 C300 312 380 316 452 314"/>
-      <path d="M452 314 C456 382 452 450 456 506"/>
-      <path d="M456 506 C380 510 300 506 236 508"/>
-      <path d="M236 508 C232 440 236 380 232 318"/>
-    </g>
-    <g stroke-width="10" opacity="0.55">
-      <path d="M240 326 C310 318 390 324 446 320"/>
-      <path d="M446 322 C450 390 446 452 450 500"/>
-    </g>
-    <!-- hand-drawn circle -->
-    <path stroke-width="26" d="M684 560 C770 556 812 622 804 690 C796 760 736 800 670 794 C598 788 556 730 562 668 C568 604 612 562 690 566"/>
-    <!-- arrow from box to circle -->
-    <path stroke-width="24" d="M470 440 C540 452 600 492 622 552"/>
-    <path stroke-width="24" d="M572 540 L624 560 L636 504"/>
-  </g>
-  <!-- pencil -->
-  <g transform="translate(262 690) rotate(-40)">
-    <rect x="0" y="-32" width="250" height="64" rx="10" fill="#ffd43b"/>
-    <rect x="200" y="-32" width="50" height="64" rx="8" fill="#ff8787"/>
-    <rect x="186" y="-32" width="20" height="64" fill="#e9ecef"/>
-    <path d="M0 -32 L-70 0 L0 32 Z" fill="#ffe8cc"/>
-    <path d="M-44 -12 L-70 0 L-44 12 Z" fill="#343a40"/>
-  </g>
+  <g filter="url(#shadow)"><path d="M285 100h454c102 0 185 83 185 185v454c0 102-83 185-185 185H285c-102 0-185-83-185-185V285c0-102 83-185 185-185z" fill="url(#g3)"></path></g>
+  <path d="M262 720c60-44 110-14 160-44s56-84 104-98" fill="none" stroke="#2b2a3a" stroke-width="24" stroke-linecap="round"></path>
+<g transform="translate(-18 18) rotate(45 600 470)">
+<rect x="532" y="250" width="136" height="300" rx="26" fill="#ffffff" stroke="#6965db" stroke-width="26"></rect>
+<path d="M532 550l68 112 68-112" fill="#ffffff" stroke="#6965db" stroke-width="26" stroke-linejoin="round" stroke-linecap="round"></path>
+<path d="M578 626l22 36 22-36z" fill="#6965db"></path>
+<path d="M532 326h136" stroke="#6965db" stroke-width="22"></path>
+</g>
 </svg>

@@ -607,6 +607,7 @@ function diagnostics(api: Api) {
         rectangleTool: '.ToolIcon:has([data-testid="toolbar-rectangle"])',
         menu: ".main-menu-trigger",
         library: ".mac-top-actions .mac-library",
+        sidebarClose: '[data-testid="sidebar-close"]',
       }).map(([k, sel]) => {
         const r = document.querySelector(sel)?.getBoundingClientRect();
         return [k, r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null];
