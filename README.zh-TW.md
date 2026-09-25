@@ -1,6 +1,18 @@
-# Excalidraw for Mac：離線白板 App ＋ 讓 AI Agent 畫圖的 MCP
+# Excalidraw for Mac
 
 [English](README.md) · **繁體中文**
+
+**離線的 Excalidraw 白板 Mac App，內建 MCP，讓 AI Agent 跟你一起畫圖。**
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)](#1-下載與安裝)
+[![Apple Silicon and Intel](https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-555)](#1-下載與安裝)
+[![MCP built in](https://img.shields.io/badge/MCP-built%20in-6965db)](#3-讓-ai-agent-使用這個-appmcp)
+[![Download](https://img.shields.io/badge/download-latest-2ea44f)](https://github.com/TingGeorge/excalidraw-mac/releases/tag/latest)
+
+<p align="center">
+  <img src="docs/cover.webp" alt="Excalidraw for Mac：繪圖視窗，工具列在標題列上" width="100%">
+</p>
 
 把 [Excalidraw](https://github.com/excalidraw/excalidraw) 做成原生 Mac App：
 

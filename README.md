@@ -2,7 +2,19 @@
 
 **English** · [繁體中文](README.zh-TW.md)
 
-An offline whiteboard app for macOS built around [Excalidraw](https://github.com/excalidraw/excalidraw), with a built-in [MCP](https://modelcontextprotocol.io) server so AI agents such as Claude Code can draw in it.
+**An offline Excalidraw whiteboard for macOS, with a built-in MCP server so AI agents can draw with you.**
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)](#install)
+[![Apple Silicon and Intel](https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-555)](#install)
+[![MCP built in](https://img.shields.io/badge/MCP-built%20in-6965db)](#let-an-ai-agent-use-it-mcp)
+[![Download](https://img.shields.io/badge/download-latest-2ea44f)](https://github.com/TingGeorge/excalidraw-mac/releases/tag/latest)
+
+<p align="center">
+  <img src="docs/cover.webp" alt="Excalidraw for Mac: a drawing window with the tools in the title bar" width="100%">
+</p>
+
+A native macOS app built around [Excalidraw](https://github.com/excalidraw/excalidraw), with a built-in [MCP](https://modelcontextprotocol.io) server so AI agents such as Claude Code can draw in it.
 
 > **Unofficial.** This is an independent project. It is not made by, endorsed by or affiliated with the Excalidraw team. "Excalidraw" is the name of their project, used here to say what this app is built on.
 
