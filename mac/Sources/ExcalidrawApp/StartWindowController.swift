@@ -111,8 +111,8 @@ final class StartWindowController: NSObject, NSWindowDelegate {
         side.translatesAutoresizingMaskIntoConstraints = false
         sidebar.addSubview(side)
 
-        // Right: recent files.
-        let right = NSView()
+        // Right: recent files, on the content background (white / dark grey).
+        let right = ContentBackgroundView()
         right.translatesAutoresizingMaskIntoConstraints = false
 
         let header = NSTextField(labelWithString: L10n.t("Recent", "最近使用"))
@@ -238,6 +238,14 @@ private func flexibleSpace() -> NSView {
     return view
 }
 
+/// Fills itself with the window's content background colour, following light / dark mode.
+private final class ContentBackgroundView: NSView {
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+    }
+}
+
 /// A flipped document view, so the list starts at the top of the scroll view.
 private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
@@ -344,7 +352,7 @@ private final class RecentRow: HoverRow {
 
         let preview = NSImageView()
         preview.image = thumbnail ?? NSWorkspace.shared.icon(forFile: url.path)
-        preview.imageScaling = .scaleProportionallyDown
+        preview.imageScaling = .scaleProportionallyUpOrDown
         preview.wantsLayer = true
         preview.layer?.backgroundColor = NSColor.white.cgColor
         preview.layer?.cornerRadius = 5
