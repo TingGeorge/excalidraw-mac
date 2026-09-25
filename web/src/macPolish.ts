@@ -207,20 +207,14 @@ function polishDialogs(root: ParentNode) {
 }
 
 export function installMacPolish() {
-  let pending = false;
   const run = () => {
-    pending = false;
     polishShortcuts(document);
     adoptTitles(document);
     polishDialogs(document);
   };
-  const schedule = () => {
-    if (!pending) {
-      pending = true;
-      requestAnimationFrame(run);
-    }
-  };
-  new MutationObserver(schedule).observe(document.body, {
+  // Mutation observer callbacks run before the next paint: menus and dialogs never show up
+  // unpolished, not even for a frame. (Our own changes call it once more; that finds nothing.)
+  new MutationObserver(run).observe(document.body, {
     childList: true,
     subtree: true,
     characterData: true,

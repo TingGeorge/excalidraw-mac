@@ -278,7 +278,7 @@ test("macOS polish", async (t) => {
 
   await t.test("command palette opens, with Mac key caps and no stray close button (H1)", async () => {
     await p.mouse.move(640, 500);
-    await p.keyboard.press("Control+/");
+    await p.keyboard.press("ControlOrMeta+/");
     await waitFor(() => p.evaluate(() => !!document.querySelector(".command-palette-dialog")), 3000, "palette");
     await wait(300);
     const palette = await p.evaluate(() => ({
@@ -320,7 +320,7 @@ test("macOS polish", async (t) => {
 
   await t.test("properties panel on the 16 pt edge; Align first when several are selected (M6, M8)", async () => {
     await p.mouse.click(640, 700);
-    await p.keyboard.press("Control+a");
+    await p.keyboard.press("ControlOrMeta+a");
     await wait(400);
     const panel = await p.evaluate(() => {
       const col = document.querySelector(".App-menu__left");
