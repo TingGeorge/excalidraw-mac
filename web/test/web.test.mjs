@@ -456,3 +456,41 @@ test("macOS polish", async (t) => {
     assert.deepEqual(h.errors, []);
   });
 });
+
+// WebKit has no canvas filters: the page brings its own, so the export dialog still offers
+// "Dark mode" and dark PNGs come out dark (L4).
+test("dark export without canvas filters (WebKit)", async (t) => {
+  const h = await startHarness({ lang: "en", init: () => delete CanvasRenderingContext2D.prototype.filter });
+  t.after(() => h.close());
+  const p = h.page;
+  assert.equal(await p.evaluate(() => Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, "filter")?.get?.name ?? ""), "get");
+  const pixel = await p.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 4;
+    const ctx = canvas.getContext("2d");
+    ctx.filter = "invert(93%) hue-rotate(180deg)";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, 4, 4);
+    const img = new Image();
+    img.src = canvas.toDataURL("image/png");
+    await img.decode();
+    const out = document.createElement("canvas");
+    out.width = out.height = 4;
+    const o = out.getContext("2d");
+    o.drawImage(img, 0, 0);
+    return [...o.getImageData(1, 1, 1, 1).data];
+  });
+  assert.deepEqual(pixel.slice(0, 3).map((v) => Math.abs(v - 18) <= 1), [true, true, true], `white became ${pixel}`);
+  ok(await h.call("add_elements", { elements: [{ type: "rectangle", x: 0, y: 0, width: 100, height: 60 }] }));
+  ok(await h.call("set_theme_preference", { preference: "dark" }));
+  ok(await h.call("open_export_dialog"));
+  await waitFor(() => p.evaluate(() => !!document.querySelector(".ImageExportModal")), 3000, "export dialog");
+  await new Promise((r) => setTimeout(r, 500));
+  const dialog = await p.evaluate(() => ({
+    text: document.querySelector(".ImageExportModal").innerText,
+    preview: getComputedStyle(document.querySelector(".ImageExportModal canvas")).filter,
+  }));
+  assert.match(dialog.text, /Dark mode/);
+  assert.match(dialog.preview, /invert/);
+  assert.deepEqual(h.errors, []);
+});

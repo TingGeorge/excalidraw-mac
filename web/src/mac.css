@@ -343,3 +343,9 @@
   color: #1d1d1f;
   background: rgba(236, 236, 241, 0.96);
 }
+
+/* Export preview in WebKit: the dark theme as a CSS filter (see canvasFilter.ts). */
+.excalidraw .ImageExportModal__preview__canvas > canvas[data-mac-filter],
+canvas[data-mac-filter] {
+  filter: invert(93%) hue-rotate(180deg) !important;
+}

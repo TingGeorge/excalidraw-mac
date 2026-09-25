@@ -89,28 +89,12 @@ jobs:
         run: |
           set -euo pipefail
           # VoiceOver sees the actions and recent files as buttons, not loose texts and icons.
-          cat > "$RUNNER_TEMP/a11y.applescript" <<'OSA'
-          tell application "System Events" to tell process "Excalidraw"
-            set buttons to {}
-            set texts to {}
-            repeat with e in (entire contents of front window)
-              try
-                set r to role of e
-                if r is "AXButton" then set end of buttons to (description of e)
-                if r is "AXStaticText" then set end of texts to (value of e)
-                if r is "AXImage" then set end of texts to ("image " & (description of e))
-              end try
-            end repeat
-            set AppleScript's text item delimiters to " | "
-            return "BUTTONS: " & (buttons as text) & linefeed & "TEXTS: " & (texts as text)
-          end tell
-          OSA
           a11y() {
-            osascript "$RUNNER_TEMP/a11y.applescript" | tee "$RUNNER_TEMP/a11y.txt"
-            grep "^BUTTONS" "$RUNNER_TEMP/a11y.txt" | grep -q "New File…" || { echo "FAIL: New File… is not a button"; exit 1; }
-            grep "^BUTTONS" "$RUNNER_TEMP/a11y.txt" | grep -q "Open…" || { echo "FAIL: Open… is not a button"; exit 1; }
-            grep "^BUTTONS" "$RUNNER_TEMP/a11y.txt" | grep -q "diagram" || { echo "FAIL: the recent file is not a button"; exit 1; }
-            if grep "^TEXTS" "$RUNNER_TEMP/a11y.txt" | grep -Eq "New File…|move|sparkle|Document with"; then
+            swift test/ax-tree.swift Excalidraw | tee "$RUNNER_TEMP/a11y.txt"
+            grep -Eq "^ *AXButton \| New File…" "$RUNNER_TEMP/a11y.txt" || { echo "FAIL: New File… is not a button"; exit 1; }
+            grep -Eq "^ *AXButton \| Open…" "$RUNNER_TEMP/a11y.txt" || { echo "FAIL: Open… is not a button"; exit 1; }
+            grep -Eq "^ *AXButton \| diagram" "$RUNNER_TEMP/a11y.txt" || { echo "FAIL: the recent file is not a button"; exit 1; }
+            if grep -E "^ *AXStaticText|^ *AXImage" "$RUNNER_TEMP/a11y.txt" | grep -Eq "New File…|Open…|move|sparkle|Document with"; then
               echo "FAIL: row contents are exposed separately"; exit 1
             fi
             echo "PASS start screen accessibility"

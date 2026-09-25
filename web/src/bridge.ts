@@ -613,6 +613,7 @@ function diagnostics(api: Api) {
     exportName: api.getAppState().name,
     exportWithDarkMode: api.getAppState().exportWithDarkMode,
     openDialog: api.getAppState().openDialog?.name ?? null,
+    dialogText: (document.querySelector(".Modal") as HTMLElement | null)?.innerText.slice(0, 400) ?? null,
     sidebarOpen: !!document.querySelector(".default-sidebar"),
     // Where things are on screen, for UI tests that click them.
     rects: Object.fromEntries(

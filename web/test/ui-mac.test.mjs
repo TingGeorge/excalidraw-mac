@@ -136,7 +136,9 @@ test("title bar row of the drawing window", { skip: !(HOME && APP) && "needs the
   await t.test("File > Export Image… opens the export dialog (M10, L2)", async () => {
     clickMenu("File", "Export Image…");
     await waitUntil(async () => (await bridge("diagnostics")).openDialog === "imageExport", 4000, "export dialog");
-    assert.equal((await bridge("diagnostics")).exportName, "diagram", "exports are named after the file");
+    const d = await bridge("diagnostics");
+    assert.equal(d.exportName, "diagram", "exports are named after the file");
+    assert.match(d.dialogText, /Dark mode/, "WebKit gets the Dark mode switch too (L4)");
     shot("export-dialog");
     osa('tell application "System Events" to key code 53');
     await waitUntil(async () => (await bridge("diagnostics")).openDialog === null, 4000, "export dialog closed");

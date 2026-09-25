@@ -15,7 +15,7 @@ const TYPES = {
   ".woff2": "font/woff2", ".svg": "image/svg+xml", ".png": "image/png", ".wasm": "application/wasm",
 };
 
-export async function startHarness({ session = null, lang } = {}) {
+export async function startHarness({ session = null, lang, init } = {}) {
   const server = createServer(async (req, res) => {
     const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
     if (path === "/__native__/session") {
@@ -55,6 +55,7 @@ export async function startHarness({ session = null, lang } = {}) {
     if (lang) window.__NATIVE_LANG__ = lang;
     window.webkit = { messageHandlers: { native: { postMessage: (m) => window.__recordNative(m) } } };
   }, lang);
+  if (init) await page.addInitScript(init);
   await page.goto(`${origin}/index.html`);
   await waitFor(() => messages.some((m) => m.type === "ready"), 20000, "page never posted ready");
 
