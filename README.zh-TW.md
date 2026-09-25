@@ -8,7 +8,7 @@
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)](#1-下載與安裝)
 [![Apple Silicon and Intel](https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-555)](#1-下載與安裝)
 [![MCP built in](https://img.shields.io/badge/MCP-built%20in-6965db)](#3-讓-ai-agent-使用這個-appmcp)
-[![Download](https://img.shields.io/badge/download-latest-2ea44f)](https://github.com/TingGeorge/excalidraw-mac/releases/tag/latest)
+[![Download](https://img.shields.io/github/v/release/TingGeorge/excalidraw-mac?label=download&color=2ea44f)](https://github.com/TingGeorge/excalidraw-mac/releases/latest)
 
 <p align="center">
   <img src="docs/cover.webp" alt="Excalidraw for Mac：繪圖視窗，工具列在標題列上" width="100%">
@@ -27,7 +27,7 @@
 
 ## 1. 下載與安裝
 
-1. 下載：**<https://github.com/TingGeorge/excalidraw-mac/releases/tag/latest>** → `Excalidraw-macOS.zip`（Apple Silicon 與 Intel 通用，需要 macOS 13 以上）。
+1. 下載：**<https://github.com/TingGeorge/excalidraw-mac/releases/latest>** → `Excalidraw-macOS.zip`（Apple Silicon 與 Intel 通用，需要 macOS 13 以上）。
 2. 解壓縮，把 **Excalidraw.app** 拖進「應用程式」資料夾。
 3. **第一次打開**：這個 App 沒有經過 Apple 公證，直接雙擊會被擋。任選一種方式放行：
    - 在「應用程式」裡**按右鍵** Excalidraw → **打開** → 再按 **打開**。
@@ -161,7 +161,7 @@ cd ../mac && swift build -c release        # macOS；Linux 上只會編譯 MCP �
 cd ../web && MCP_BIN=../mac/.build/release/excalidraw-mcp node --test test/mcp.test.mjs
 ```
 
-在 Linux 上，`test/fake-app.mjs` 會模擬 App（同樣的 socket 協定，操作轉給 headless Chromium 裡的真實網頁），所以 MCP 伺服器可以不用 Mac 就測試。GitHub Actions（`.github/workflows/excalidraw-mac.yml`）在 macOS 15 和 macOS 26 上建置真正的 App，讓 MCP 伺服器自己啟動它，照「使用者開檔 → agent 畫圖 → 使用者按 ⌘S」的流程跑同一套測試，另外測強制結束後未儲存的變更能否恢復，並截圖用 OCR 確認圖真的畫在視窗裡，最後發佈下載檔。
+在 Linux 上，`test/fake-app.mjs` 會模擬 App（同樣的 socket 協定，操作轉給 headless Chromium 裡的真實網頁），所以 MCP 伺服器可以不用 Mac 就測試。GitHub Actions（`.github/workflows/excalidraw-mac.yml`）在 macOS 15 和 macOS 26 上建置真正的 App，讓 MCP 伺服器自己啟動它，照「使用者開檔 → agent 畫圖 → 使用者按 ⌘S」的流程跑同一套測試，另外測強制結束後未儲存的變更能否恢復，並截圖用 OCR 確認圖真的畫在視窗裡，推送版本標籤（`git tag v0.2.0 && git push origin v0.2.0`）時，所有 macOS 的測試都通過後，會把那次的建置發佈成最新的 Release。
 
 ## 授權
 

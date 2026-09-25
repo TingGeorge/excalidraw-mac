@@ -8,7 +8,7 @@
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)](#install)
 [![Apple Silicon and Intel](https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-555)](#install)
 [![MCP built in](https://img.shields.io/badge/MCP-built%20in-6965db)](#let-an-ai-agent-use-it-mcp)
-[![Download](https://img.shields.io/badge/download-latest-2ea44f)](https://github.com/TingGeorge/excalidraw-mac/releases/tag/latest)
+[![Download](https://img.shields.io/github/v/release/TingGeorge/excalidraw-mac?label=download&color=2ea44f)](https://github.com/TingGeorge/excalidraw-mac/releases/latest)
 
 <p align="center">
   <img src="docs/cover.webp" alt="Excalidraw for Mac: a drawing window with the tools in the title bar" width="100%">
@@ -28,7 +28,7 @@ A native macOS app built around [Excalidraw](https://github.com/excalidraw/excal
 
 ## Install
 
-1. Download **`Excalidraw-macOS.zip`** from the **[latest release](https://github.com/TingGeorge/excalidraw-mac/releases/tag/latest)** (universal: Apple Silicon and Intel; macOS 13 or later).
+1. Download **`Excalidraw-macOS.zip`** from the **[latest release](https://github.com/TingGeorge/excalidraw-mac/releases/latest)** (universal: Apple Silicon and Intel; macOS 13 or later).
 2. Unzip it and drag **Excalidraw.app** into **Applications**.
 3. **First launch:** the app is not notarized by Apple, so macOS blocks a plain double-click. Any one of these lets it open:
    - Right-click Excalidraw in Applications → **Open** → **Open**.
@@ -146,7 +146,7 @@ cd ../mac && swift build -c release        # on Linux only the MCP server builds
 cd ../web && MCP_BIN=../mac/.build/release/excalidraw-mcp node --test test/mcp.test.mjs
 ```
 
-On Linux, `test/fake-app.mjs` stands in for the app (same socket protocol, operations run in the real page in headless Chromium), so the MCP server can be tested without a Mac. GitHub Actions builds the real app on macOS 15 and macOS 26, runs the same flow against it (user opens a file → agent draws → user presses ⌘S), clicks through the UI with real mouse and menu events, checks recovery after a forced quit, and publishes the download.
+On Linux, `test/fake-app.mjs` stands in for the app (same socket protocol, operations run in the real page in headless Chromium), so the MCP server can be tested without a Mac. GitHub Actions builds the real app on macOS 15 and macOS 26, runs the same flow against it (user opens a file → agent draws → user presses ⌘S), clicks through the UI with real mouse and menu events, checks recovery after a forced quit. Pushing a version tag (`git tag v0.2.0 && git push origin v0.2.0`) publishes that build as the latest release once the tests pass on every macOS.
 
 ## License
 
