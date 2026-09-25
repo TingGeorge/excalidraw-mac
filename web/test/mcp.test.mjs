@@ -6,7 +6,7 @@
 //     -> the MCP server starts the real app itself, exactly as it would for an agent.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -25,7 +25,8 @@ const jsonOf = (res) => {
 test("excalidraw-mcp end to end", { skip: !MCP_BIN && "set MCP_BIN" }, async (t) => {
   // Keep the socket path short: macOS limits Unix socket paths to 104 bytes.
   const home = process.env.EXCALIDRAW_MAC_HOME || mkdtempSync(join(REAL_APP ? "/tmp" : tmpdir(), "exm-"));
-  const work = mkdtempSync(join(tmpdir(), "exm-work-"));
+  // realpath: on macOS the temp folder is a symlink (/var -> /private/var).
+  const work = realpathSync(mkdtempSync(join(tmpdir(), "exm-work-")));
   let fake;
   if (!REAL_APP) {
     const { startFakeApp } = await import("./fake-app.mjs");
