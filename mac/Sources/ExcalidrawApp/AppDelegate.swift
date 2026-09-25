@@ -3,9 +3,10 @@ import AppKit
 import BridgeCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let store = Store()
     private var canvas: CanvasController?
+    private var start: StartWindowController?
     private var bridge: AppBridge?
     private var pendingFiles: [URL] = []
     private var sigterm: DispatchSourceSignal?
@@ -16,8 +17,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let canvas = CanvasController(store: store)
+        canvas.onDocumentChanged = { [weak self] in self?.showRightWindow() }
         self.canvas = canvas
-        canvas.show()
+        start = StartWindowController(
+            store: store,
+            onNew: { canvas.createDocument() },
+            onOpen: { canvas.openDocument() },
+            onOpenRecent: { [weak self] url in self?.openFile(url) })
 
         let bridge = AppBridge(canvas: canvas, store: store)
         do {
@@ -27,15 +33,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("Excalidraw: AI agent bridge not available: \(error)")
         }
 
-        if let url = pendingFiles.first { openFromFinder(url) }
+        if let url = pendingFiles.first { openFile(url) } else { showRightWindow() }
         pendingFiles = []
 
-        // `kill` / `killall Excalidraw`: keep the canvas (autosave) and exit without questions.
+        // `kill` / `killall Excalidraw`: keep unsaved changes as a recovery copy and exit
+        // without questions. They come back the next time that file is opened.
         signal(SIGTERM, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         source.setEventHandler { [weak self] in self?.terminateForSignal() }
         source.resume()
         sigterm = source
+    }
+
+    /// The drawing window when a file is open, otherwise the start screen.
+    private func showRightWindow() {
+        guard let canvas, let start else { return }
+        if canvas.hasDocument {
+            start.hide()
+            canvas.show()
+        } else {
+            start.show()
+        }
     }
 
     private func terminateForSignal() {
@@ -47,33 +65,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let canvas { canvas.flushAutosave(completion: finish) } else { finish() }
     }
 
-    /// Double-clicked .excalidraw files (Finder, Dock, `open file.excalidraw`).
+    /// Double-clicked .excalidraw files (Finder, Dock, `open file.excalidraw`) and recent files.
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let url = urls.first else { return }
-        if canvas == nil { pendingFiles = [url] } else { openFromFinder(url) }
+        if canvas == nil { pendingFiles = [url] } else { openFile(url) }
     }
 
-    private func openFromFinder(_ url: URL) {
+    private func openFile(_ url: URL) {
         guard let canvas else { return }
-        canvas.show()
-        canvas.confirmReplacing { ok in
+        if canvas.store.currentFile?.standardizedFileURL == url.standardizedFileURL {
+            return canvas.show()
+        }
+        canvas.confirmClosing { ok in
             guard ok else { return }
-            canvas.open(url) { error in if let error { canvas.showError(error) } }
+            canvas.open(url) { error in
+                guard let error else { return }
+                if !FileManager.default.fileExists(atPath: url.path) { self.store.removeRecent(url) }
+                canvas.showError(error)
+                self.showRightWindow()
+            }
         }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Clicking the Dock icon with no window showing.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { showRightWindow() }
+        return true
+    }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let canvas, !canvas.closeConfirmed else { return .terminateNow }
+        guard let canvas, canvas.hasDocument else { return .terminateNow }
         canvas.confirmClosing { ok in
             guard ok else {
                 NSApp.reply(toApplicationShouldTerminate: false)
                 return
             }
-            canvas.flushAutosave { NSApp.reply(toApplicationShouldTerminate: true) }
+            self.store.documentClosed()  // saved or discarded on purpose: no recovery copy
+            self.store.flush()
+            NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
     }
@@ -85,12 +118,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Menu actions
 
-    @objc func newDocument(_ sender: Any?) { canvas?.newDocument() }
+    @objc func newDocument(_ sender: Any?) { canvas?.createDocument() }
     @objc func openDocument(_ sender: Any?) { canvas?.openDocument() }
     @objc func saveDocument(_ sender: Any?) { canvas?.save() }
     @objc func saveDocumentAs(_ sender: Any?) { canvas?.saveAs() }
     @objc func exportPNG(_ sender: Any?) { canvas?.exportImage(format: "png") }
     @objc func exportSVG(_ sender: Any?) { canvas?.exportImage(format: "svg") }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)), #selector(exportPNG(_:)),
+            #selector(exportSVG(_:)):
+            return canvas?.hasDocument == true
+        default:
+            return true
+        }
+    }
 
     @objc func openHelp(_ sender: Any?) {
         NSWorkspace.shared.open(URL(string: "https://github.com/TingGeorge/ideas/tree/main/excalidraw-mac#readme")!)
@@ -111,8 +154,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = L10n.t("Connect an AI agent (MCP)", "連接 AI Agent（MCP）")
         alert.informativeText = L10n.t(
-            "This app includes an MCP server, so agents such as Claude Code can draw here: read the canvas, add shapes and Mermaid diagrams, edit, export PNG/SVG and save files. The app starts by itself when an agent needs it.\n\nClaude Code: run this command once in Terminal. Other MCP clients (Claude Desktop, Cursor…): add the JSON to their MCP settings.",
-            "這個 App 內建 MCP 伺服器，Claude Code 等 agent 可以直接在這裡畫圖：讀取畫布、新增圖形與 Mermaid 圖表、修改、匯出 PNG/SVG、存檔。agent 需要時會自動開啟 App。\n\nClaude Code：在「終端機」執行一次下面的指令。其他 MCP 用戶端（Claude Desktop、Cursor…）：把 JSON 加進它們的 MCP 設定。"
+            "This app includes an MCP server, so agents such as Claude Code can draw in the file you have open: read the canvas, add shapes and Mermaid diagrams, edit, and look at the result. Agents can't save or open files; you save with ⌘S.\n\nClaude Code: run this command once in Terminal. Other MCP clients (Claude Desktop, Cursor…): add the JSON to their MCP settings.",
+            "這個 App 內建 MCP 伺服器，Claude Code 等 agent 可以在你開著的檔案裡畫圖：讀取畫布、新增圖形與 Mermaid 圖表、修改、看畫出來的結果。agent 不能存檔或開檔，存檔由你按 ⌘S。\n\nClaude Code：在「終端機」執行一次下面的指令。其他 MCP 用戶端（Claude Desktop、Cursor…）：把 JSON 加進它們的 MCP 設定。"
         )
         let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 520, height: 150))
         text.string = "\(claudeCommand)\n\n\(jsonConfig)"
@@ -180,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item(t("Quit Excalidraw", "結束 Excalidraw"), #selector(NSApplication.terminate(_:)), "q"),
         ])
         submenu(t("File", "檔案"), [
-            item(t("New", "新增"), #selector(newDocument(_:)), "n", target: self),
+            item(t("New File…", "新增檔案…"), #selector(newDocument(_:)), "n", target: self),
             item(t("Open…", "開啟…"), #selector(openDocument(_:)), "o", target: self),
             .separator(),
             item(t("Close", "關閉"), #selector(NSWindow.performClose(_:)), "w"),

@@ -9,7 +9,7 @@ extension UTType {
     static let excalidrawScene = UTType(exportedAs: "io.github.tinggeorge.excalidraw.scene", conformingTo: .json)
 }
 
-/// The window with the Excalidraw page, and the document commands (new / open / save / export).
+/// The drawing window (the Excalidraw page) and the document commands (new / open / save / export).
 @MainActor
 final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
     WKScriptMessageHandler, WKDownloadDelegate
@@ -17,9 +17,6 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     let store: Store
     let window: NSWindow
     let webView: WKWebView
-    /// Set once the user agreed to close the window, so quitting doesn't ask again.
-    private(set) var closeConfirmed = false
-
     private var ready = false
     private var whenReady: [() -> Void] = []
 
@@ -52,6 +49,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         window.minSize = NSSize(width: 600, height: 400)
         window.center()
         _ = window.setFrameAutosaveName("ExcalidrawMainWindow")
+        window.isRestorable = false
         updateTitle()
         webView.load(URLRequest(url: SchemeHandler.startURL))
     }
@@ -118,7 +116,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             if let items = body["items"] as? String { store.saveLibrary(items) }
         case "menu":
             switch body["action"] as? String {
-            case "new": newDocument()
+            case "new": createDocument()
             case "open": openDocument()
             case "save": save()
             case "saveAs": saveAs()
@@ -130,9 +128,17 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     // MARK: Document commands
+    //
+    // Every drawing is a file the user chose: New asks for a folder and a name and creates the
+    // file right away; only ⌘S writes to it. Agents edit the canvas but never save or open files.
+
+    /// Called when a drawing is opened or closed (the app shows / hides the start screen).
+    var onDocumentChanged: (() -> Void)?
+
+    var hasDocument: Bool { store.currentFile != nil }
 
     var displayName: String {
-        store.currentFile?.lastPathComponent ?? L10n.t("Untitled", "未命名")
+        store.currentFile?.lastPathComponent ?? "Excalidraw"
     }
 
     func updateTitle() {
@@ -141,28 +147,13 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         window.isDocumentEdited = store.dirty
     }
 
-    /// Before replacing the canvas (new / open): offer to save unsaved changes. true = go ahead.
-    func confirmReplacing(completion: @escaping (Bool) -> Void) {
-        guard store.dirty else { return completion(true) }
-        let message =
-            store.currentFile == nil
-            ? L10n.t("Save the current drawing first?", "要先儲存目前的繪圖嗎？")
-            : L10n.t("Do you want to save the changes made to “\(displayName)”?", "要儲存對「\(displayName)」所做的變更嗎？")
-        askToSave(message, completion: completion)
-    }
-
-    /// Before closing / quitting. Untitled drawings are autosaved and come back next time,
-    /// so only drawings that belong to a file ask.
+    /// Before closing the drawing or replacing it with another one: offer to save unsaved
+    /// changes. true = go ahead ("Save" succeeded or "Don't Save").
     func confirmClosing(completion: @escaping (Bool) -> Void) {
-        guard store.dirty, store.currentFile != nil else { return completion(true) }
-        askToSave(
-            L10n.t("Do you want to save the changes made to “\(displayName)”?", "要儲存對「\(displayName)」所做的變更嗎？"),
-            completion: completion)
-    }
-
-    private func askToSave(_ message: String, completion: @escaping (Bool) -> Void) {
+        guard hasDocument, store.dirty else { return completion(true) }
         let alert = NSAlert()
-        alert.messageText = message
+        alert.messageText = L10n.t(
+            "Do you want to save the changes made to “\(displayName)”?", "要儲存對「\(displayName)」所做的變更嗎？")
         alert.informativeText = L10n.t("Your changes will be lost if you don't save them.", "如果不儲存，變更將會遺失。")
         alert.addButton(withTitle: L10n.t("Save", "儲存"))
         alert.addButton(withTitle: L10n.t("Cancel", "取消"))
@@ -177,56 +168,118 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         }
     }
 
-    func newDocument() {
-        confirmReplacing { ok in
+    /// File > New: pick a folder and a name, create the file there, open it.
+    func createDocument() {
+        confirmClosing { ok in
             guard ok else { return }
-            self.call("new_scene") { _ in
-                self.store.setCurrentFile(nil)
-                self.store.setDirty(false)
-                self.updateTitle()
+            let panel = NSSavePanel()
+            panel.title = L10n.t("New Excalidraw File", "新增 Excalidraw 檔案")
+            panel.message = L10n.t("Choose a folder and a name for your drawing.", "選擇要存放繪圖的資料夾，並輸入檔名。")
+            panel.prompt = L10n.t("Create", "建立")
+            panel.allowedContentTypes = [.excalidrawScene]
+            panel.canCreateDirectories = true
+            panel.nameFieldStringValue = "\(L10n.t("Untitled", "未命名")).excalidraw"
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else { return }
+                do {
+                    try Data(Self.emptyScene.utf8).write(to: url, options: .atomic)
+                } catch {
+                    return self.showError(
+                        BridgeError(
+                            L10n.t(
+                                "Could not create \(url.path): \(error.localizedDescription)",
+                                "無法建立 \(url.path)：\(error.localizedDescription)")))
+                }
+                self.open(url) { error in if let error { self.showError(error) } }
             }
         }
     }
 
+    static let emptyScene = """
+        {"type":"excalidraw","version":2,"source":"Excalidraw for Mac","elements":[],\
+        "appState":{"gridSize":20,"viewBackgroundColor":"#ffffff"},"files":{}}
+        """
+
+    /// File > Open.
     func openDocument() {
-        confirmReplacing { ok in
+        confirmClosing { ok in
             guard ok else { return }
             let panel = NSOpenPanel()
             panel.allowedContentTypes = [.excalidrawScene, .json]
             panel.allowsMultipleSelection = false
-            panel.beginSheetModal(for: self.window) { response in
+            panel.begin { response in
                 guard response == .OK, let url = panel.url else { return }
                 self.open(url) { error in if let error { self.showError(error) } }
             }
         }
     }
 
-    /// Replaces the canvas with a file (no questions asked; callers confirm first).
+    /// Shows `url` in the canvas (callers ask about unsaved changes first). If the app was killed
+    /// while this file had unsaved changes, those changes come back (still unsaved).
     func open(_ url: URL, completion: @escaping (BridgeError?) -> Void) {
+        let recovered = store.recoveredScene(for: url)
         let text: String
-        do {
-            text = try String(contentsOf: url, encoding: .utf8)
-        } catch {
-            return completion(
-                BridgeError(
-                    L10n.t("Could not read \(url.path): \(error.localizedDescription)", "無法讀取 \(url.path)：\(error.localizedDescription)")))
+        if let recovered {
+            text = recovered
+        } else {
+            do {
+                text = try String(contentsOf: url, encoding: .utf8)
+            } catch {
+                return completion(
+                    BridgeError(
+                        L10n.t(
+                            "Could not read \(url.path): \(error.localizedDescription)",
+                            "無法讀取 \(url.path)：\(error.localizedDescription)")))
+            }
         }
-        call("load_scene_json", ["json": .string(text)]) { result in
+        call("load_scene_json", ["json": .string(text), "dirty": .bool(recovered != nil)]) { result in
             switch result {
             case .success:
-                self.store.setCurrentFile(url)
-                self.store.setDirty(false)
+                self.store.documentOpened(url, dirty: recovered != nil)
                 self.updateTitle()
                 NSDocumentController.shared.noteNewRecentDocumentURL(url)
+                self.show()
+                self.onDocumentChanged?()
+                if recovered != nil {
+                    let alert = NSAlert()
+                    alert.messageText = L10n.t("Unsaved changes restored", "已恢復未儲存的變更")
+                    alert.informativeText = L10n.t(
+                        "Excalidraw quit before you saved “\(url.lastPathComponent)”. Your changes are back; press ⌘S to save them.",
+                        "Excalidraw 在你儲存「\(url.lastPathComponent)」之前就結束了。變更已經恢復，按 ⌘S 儲存。")
+                    alert.beginSheetModal(for: self.window)
+                }
                 completion(nil)
             case .failure(let error):
-                completion(BridgeError(L10n.t("\(url.lastPathComponent) is not an Excalidraw drawing (\(error))", "\(url.lastPathComponent) 不是 Excalidraw 繪圖檔（\(error)）")))
+                completion(
+                    BridgeError(
+                        L10n.t(
+                            "\(url.lastPathComponent) is not an Excalidraw drawing (\(error))",
+                            "\(url.lastPathComponent) 不是 Excalidraw 繪圖檔（\(error)）")))
             }
         }
     }
 
+    /// Closes the drawing (after asking about unsaved changes) and goes back to the start screen.
+    func closeDocument(completion: ((Bool) -> Void)? = nil) {
+        confirmClosing { ok in
+            guard ok else {
+                completion?(false)
+                return
+            }
+            self.store.documentClosed()
+            self.window.orderOut(nil)
+            self.updateTitle()
+            self.call("new_scene") { _ in }
+            self.onDocumentChanged?()
+            completion?(true)
+        }
+    }
+
     func save(completion: ((Bool) -> Void)? = nil) {
-        guard let url = store.currentFile else { return saveAs(completion: completion) }
+        guard let url = store.currentFile else {
+            completion?(false)
+            return
+        }
         write(to: url) { error in
             if let error { self.showError(error) }
             completion?(error == nil)
@@ -234,11 +287,12 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     func saveAs(completion: ((Bool) -> Void)? = nil) {
+        guard hasDocument else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.excalidrawScene]
         panel.canCreateDirectories = true
-        panel.nameFieldStringValue = store.currentFile?.lastPathComponent ?? "\(L10n.t("Untitled", "未命名")).excalidraw"
-        show()
+        panel.nameFieldStringValue = displayName
+        panel.directoryURL = store.currentFile?.deletingLastPathComponent()
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else {
                 completion?(false)
@@ -251,8 +305,8 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         }
     }
 
-    /// Saves the canvas to `url`, which becomes the current document.
-    func write(to url: URL, completion: @escaping (BridgeError?) -> Void) {
+    /// Saves the canvas to `url`, which becomes the open file.
+    private func write(to url: URL, completion: @escaping (BridgeError?) -> Void) {
         call("get_scene_json") { result in
             switch result {
             case .failure(let error):
@@ -263,11 +317,12 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                 } catch {
                     return completion(
                         BridgeError(
-                            L10n.t("Could not save \(url.path): \(error.localizedDescription)", "無法儲存 \(url.path)：\(error.localizedDescription)")))
+                            L10n.t(
+                                "Could not save \(url.path): \(error.localizedDescription)",
+                                "無法儲存 \(url.path)：\(error.localizedDescription)")))
                 }
                 self.call("mark_saved") { _ in
-                    self.store.setCurrentFile(url)
-                    self.store.setDirty(false)
+                    self.store.documentOpened(url, dirty: false)
                     self.updateTitle()
                     NSDocumentController.shared.noteNewRecentDocumentURL(url)
                     completion(nil)
@@ -277,6 +332,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     func exportImage(format: String) {
+        guard hasDocument else { return }
         call("export_image", ["format": .string(format), "scale": 2, "background": true]) { result in
             switch result {
             case .failure(let error):
@@ -290,6 +346,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                 let panel = NSSavePanel()
                 panel.allowedContentTypes = [format == "svg" ? .svg : .png]
                 panel.canCreateDirectories = true
+                panel.directoryURL = self.store.currentFile?.deletingLastPathComponent()
                 let base = self.store.currentFile?.deletingPathExtension().lastPathComponent ?? "Excalidraw"
                 panel.nameFieldStringValue = "\(base).\(format)"
                 panel.beginSheetModal(for: self.window) { response in
@@ -304,8 +361,8 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         }
     }
 
-    /// Writes the latest canvas to the autosave file (before quitting). Gives up after 3 s
-    /// so a stuck page can never prevent quitting.
+    /// Writes the recovery copy (when the app is killed). Gives up after 3 s so a stuck page
+    /// can never prevent quitting.
     func flushAutosave(completion: @escaping () -> Void) {
         final class Once { var done = false }
         let once = Once()
@@ -315,7 +372,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             self.store.flush()
             completion()
         }
-        guard ready else { return finish() }
+        guard ready, hasDocument else { return finish() }
         call("get_autosave") { result in
             if case .success(let r) = result, let scene = r["scene"]?.string {
                 self.store.saveAutosave(scene: scene, theme: r["theme"]?.string)
@@ -330,21 +387,18 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         alert.alertStyle = .warning
         alert.messageText = L10n.t("Something went wrong", "發生錯誤")
         alert.informativeText = error.description
-        show()
-        alert.beginSheetModal(for: window)
+        if window.isVisible {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
     }
 
     // MARK: NSWindowDelegate
 
+    /// Closing the window closes the drawing and returns to the start screen.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if closeConfirmed { return true }
-        confirmClosing { ok in
-            guard ok else { return }
-            self.flushAutosave {
-                self.closeConfirmed = true
-                self.window.close()
-            }
-        }
+        closeDocument()
         return false
     }
 

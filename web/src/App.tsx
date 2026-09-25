@@ -76,6 +76,9 @@ export function App({ session, langCode }: { session: Session; langCode: string 
       }}
     >
       <MainMenu>
+        <MainMenu.Item onSelect={menu("new")} shortcut="⌘N">
+          {t.newFile}
+        </MainMenu.Item>
         <MainMenu.Item onSelect={menu("open")} shortcut="⌘O">
           {t.open}
         </MainMenu.Item>
@@ -102,9 +105,6 @@ export function App({ session, langCode }: { session: Session; langCode: string 
           <WelcomeScreen.Center.Logo />
           <WelcomeScreen.Center.Heading>{t.welcome}</WelcomeScreen.Center.Heading>
           <WelcomeScreen.Center.Menu>
-            <WelcomeScreen.Center.MenuItem onSelect={menu("open")} shortcut="⌘O">
-              {t.open}
-            </WelcomeScreen.Center.MenuItem>
             <WelcomeScreen.Center.MenuItemHelp />
           </WelcomeScreen.Center.Menu>
         </WelcomeScreen.Center>

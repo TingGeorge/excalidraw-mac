@@ -2,11 +2,12 @@
 import BridgeCore
 import Foundation
 
-/// Listens on the Unix socket for the MCP server (excalidraw-mcp) and runs its requests.
-/// File operations are done here so they behave exactly like the File menu;
-/// everything else is passed to the page.
+/// Listens on the Unix socket for the MCP server (excalidraw-mcp) and passes its requests to
+/// the page. Only canvas operations are allowed: agents can't open, save or export files.
 @MainActor
 final class AppBridge {
+    /// Methods that work even when no drawing is open.
+    static let anytime: Set<String> = ["ping", "diagnostics", "status"]
     /// Page methods an agent may call.
     static let forwarded: Set<String> = [
         "ping", "diagnostics", "status", "get_scene", "add_elements", "add_mermaid", "update_elements",
@@ -48,29 +49,16 @@ final class AppBridge {
             }
         }
 
+        // Agents work on the drawing the user has open; they never open or save files.
+        if !Self.anytime.contains(method) && !canvas.hasDocument {
+            return respond(
+                .failure(
+                    BridgeError(
+                        "No drawing is open in Excalidraw. Ask the user to create a new file (File > New File…) or open one in the app, then try again."
+                    )))
+        }
+
         switch method {
-        case "open_file":
-            guard let path = params["path"]?.string else { return respond(.failure(BridgeError("`path` is required"))) }
-            if store.dirty && params["discard_changes"]?.bool != true {
-                let file = store.currentFile.map { " to \($0.path)" } ?? ""
-                return respond(
-                    .failure(
-                        BridgeError(
-                            "The canvas has unsaved changes\(file). Save them with save_file first, or pass discard_changes: true to replace them."
-                        )))
-            }
-            canvas.open(URL(fileURLWithPath: path)) { error in
-                if let error { respond(.failure(error)) } else { respond(.success(["path": .string(path)])) }
-            }
-
-        case "save_file":
-            guard let url = params["path"]?.string.map({ URL(fileURLWithPath: $0) }) ?? store.currentFile else {
-                return respond(.failure(BridgeError("This drawing has never been saved: pass a path.")))
-            }
-            canvas.write(to: url) { error in
-                if let error { respond(.failure(error)) } else { respond(.success(["path": .string(url.path)])) }
-            }
-
         case "get_scene":
             canvas.call("get_scene", params) { result in
                 respond(
