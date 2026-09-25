@@ -608,6 +608,8 @@ function diagnostics(api: Api) {
         menu: ".main-menu-trigger",
         library: ".mac-top-actions .mac-library",
         sidebarClose: '[data-testid="sidebar-close"]',
+        actions: ".mac-top-actions",
+        title: ".mac-title",
       }).map(([k, sel]) => {
         const r = document.querySelector(sel)?.getBoundingClientRect();
         return [k, r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null];
@@ -647,6 +649,9 @@ const ops: Record<string, (api: Api, p: Params) => unknown> = {
   },
   set_document_info: (_api, p) => {
     document.documentElement.classList.toggle("mac-fullscreen", !!p.fullscreen);
+    if (typeof p.trafficLightsEnd === "number") {
+      document.documentElement.style.setProperty("--mac-traffic-lights-end", `${p.trafficLightsEnd}px`);
+    }
     window.dispatchEvent(new CustomEvent("document-info", { detail: p }));
     return {};
   },

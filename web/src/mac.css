@@ -15,20 +15,51 @@
   --mac-glass-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
-/* The canvas fills the whole window; Excalidraw's top row sits in the title
-   bar row (52 px, centred on the traffic lights), after the traffic lights. */
+/* The canvas fills the whole window. Excalidraw's top row shares the title bar
+   row with the traffic lights, on one grid:
+   - the row is 52 pt; every control in it is 36 pt tall at y = 8 (centred on
+     the traffic lights at y = 26): menu button, toolbar, Library/Export group;
+   - 16 pt from the window edges (the traffic lights start at 16 pt too);
+   - 12 pt between the traffic lights, the menu button and the file name.
+   The app sets --mac-traffic-lights to where the traffic lights end. */
 :root {
-  --mac-traffic-lights: 68px;
+  --mac-traffic-lights-end: 70px;
+  --mac-row-gap: 12px;
+  --mac-edge: 16px;
+  --mac-menu-left: calc(var(--mac-traffic-lights-end) + var(--mac-row-gap));
 }
 :root.mac-fullscreen {
-  --mac-traffic-lights: 0px;
+  --mac-menu-left: var(--mac-edge);
 }
 .excalidraw .FixedSideContainer_side_top {
-  top: 4px;
+  top: 8px;
 }
 .excalidraw .App-menu_top__left {
-  margin-top: 4px;
-  margin-left: var(--mac-traffic-lights);
+  margin-left: calc(var(--mac-menu-left) - var(--mac-edge));
+}
+.excalidraw .main-menu-trigger {
+  width: 36px;
+  height: 36px;
+}
+
+/* Toolbar: 36 pt = 32 pt buttons + 2 pt padding; inner corners follow the outer ones. */
+.excalidraw .Island.App-toolbar {
+  padding: 2px;
+}
+.excalidraw .App-toolbar-container .ToolIcon__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+.excalidraw .App-toolbar .ToolIcon {
+  height: 32px;
+}
+.excalidraw .App-toolbar .App-toolbar__extra-tools-trigger {
+  width: 32px;
+  height: 32px;
+  padding: 8px;
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 /* No number badges on the tools and no hint line under the toolbar. */
@@ -48,8 +79,10 @@
   color: #ffffff;
 }
 
-/* The Library button lives in the window's toolbar instead. */
-.excalidraw .default-sidebar-trigger {
+/* The Library button lives in our own top-right group instead (its empty wrapper
+   would otherwise add a gap at the window edge). */
+.excalidraw .default-sidebar-trigger,
+.excalidraw .layer-ui__wrapper__top-right > .sidebar-trigger__label-element {
   display: none;
 }
 
@@ -117,19 +150,22 @@
   background-color: rgba(255, 255, 255, 0.08) !important;
 }
 
-/* File name and folder, next to the menu button (the window's title). */
+/* File name and folder, 12 pt after the menu button (the window's title). */
 .mac-title {
   position: fixed;
   top: 8px;
-  left: calc(16px + var(--mac-traffic-lights) + 46px);
+  left: calc(var(--mac-menu-left) + 36px + var(--mac-row-gap));
   height: 36px;
-  max-width: calc((100vw - 96px) / 4 - var(--mac-traffic-lights) - 50px);
+  /* stays inside the left column of Excalidraw's top row, clear of the toolbar */
+  max-width: calc((100vw - 96px) / 4 + var(--mac-edge) - var(--mac-menu-left) - 36px - var(--mac-row-gap));
   display: flex;
   flex-direction: column;
   justify-content: center;
+  gap: 1px;
   z-index: 3;
   pointer-events: none;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", system-ui, sans-serif;
+  line-height: 16px;
   color: #1d1d1f;
 }
 .mac-title div {
@@ -143,6 +179,7 @@
 }
 .mac-title .folder {
   font-size: 11px;
+  line-height: 14px;
   color: #86868b;
 }
 .mac-title.dark {
@@ -152,15 +189,20 @@
   color: #98989f;
 }
 
-/* Library and Export, top right. */
+/* Library and Export: one frosted group, the same height and style as the toolbar. */
 .mac-top-actions {
   display: flex;
   gap: 2px;
-  margin-top: 4px;
+  padding: 2px;
+  border-radius: var(--border-radius-lg);
+  background-color: var(--mac-glass-bg);
+  box-shadow: var(--mac-glass-shadow);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
 }
 .mac-top-actions button {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: 8px;

@@ -71,6 +71,9 @@ final class AppBridge {
                     "x": .double(frame.minX), "y": .double(screenHeight - frame.maxY),
                     "width": .double(frame.width), "height": .double(frame.height),
                     "visible": .bool(canvas.window.isVisible),
+                    "trafficLightsStart": .double(
+                        Double(canvas.window.standardWindowButton(.closeButton).map { $0.convert($0.bounds, to: nil).minX } ?? -1)),
+                    "trafficLightsEnd": .double(Double(canvas.trafficLightsEnd)),
                     // Only one of the drawing window and the start screen should ever show.
                     "visibleWindows": .int(NSApp.windows.filter { $0.isVisible && !($0 is NSPanel) }.count),
                 ]))

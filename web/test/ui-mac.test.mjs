@@ -45,10 +45,16 @@ test("title bar row of the drawing window", { skip: !(HOME && APP) && "needs the
   for (const k of ["toolbar", "rectangleTool", "menu", "library"]) assert.ok(d.rects[k], `${k} is on screen`);
   console.log("window", win, "toolbar", d.rects.toolbar);
 
-  await t.test("the toolbar sits in the title bar row", () => {
-    const toolbarMiddle = d.rects.toolbar.y + d.rects.toolbar.height / 2;
-    assert.ok(Math.abs(toolbarMiddle - 26) <= 2, `toolbar centred at ${toolbarMiddle}, expected 26`);
-    assert.ok(d.rects.menu.x >= 76, `menu button at x=${d.rects.menu.x} clears the traffic lights`);
+  await t.test("the title bar row is on one grid (same heights, same gaps)", () => {
+    const near = (a, b, what) => assert.ok(Math.abs(a - b) <= 1, `${what}: ${a}, expected ${b}`);
+    for (const k of ["menu", "toolbar", "actions", "title"]) {
+      near(d.rects[k].y, 8, `${k} top`);
+      near(d.rects[k].height, 36, `${k} height`);
+    }
+    near(win.trafficLightsStart, 16, "traffic lights from the left edge");
+    near(d.rects.menu.x - win.trafficLightsEnd, 12, "gap traffic lights → menu");
+    near(d.rects.title.x - (d.rects.menu.x + d.rects.menu.width), 12, "gap menu → file name");
+    near(win.width - (d.rects.actions.x + d.rects.actions.width), 16, "Library/Export from the right edge");
   });
 
   await t.test("clicking a tool in that row selects it", async () => {

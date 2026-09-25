@@ -177,10 +177,18 @@ test("bridge operations", async (t) => {
   await t.test("title bar row: file name, Library button, clickable areas", async () => {
     ok(await h.call("set_document_info", { name: "flow", folder: "~/Desktop" }));
     await waitFor(() => h.page.evaluate(() => document.querySelector(".mac-title .name")?.textContent === "flow"), 3000, "title");
-    const top = await h.page.evaluate(() => document.querySelector(".App-toolbar").getBoundingClientRect().top);
-    assert.equal(top, 4, "toolbar moved up into the title bar row");
+    ok(await h.call("set_document_info", { name: "flow", folder: "~/Desktop", trafficLightsEnd: 70 }));
+    await new Promise((r) => setTimeout(r, 300));
+    const { rects } = ok(await h.call("diagnostics"));
+    for (const k of ["menu", "toolbar", "actions", "title"]) {
+      assert.equal(rects[k].y, 8, `${k} top`);
+      assert.equal(rects[k].height, 36, `${k} height`);
+    }
+    assert.equal(rects.menu.x, 82, "12 pt after the traffic lights");
+    assert.equal(rects.title.x, rects.menu.x + rects.menu.width + 12, "12 pt after the menu button");
+    assert.equal(1280 - (rects.actions.x + rects.actions.width), 16, "16 pt from the right edge");
     const holes = h.messages.filter((m) => m.type === "titlebarHoles").at(-1).rects;
-    assert.ok(holes.some(([x, y, w, hgt]) => y === 4 && hgt === 44 && w > 300), "toolbar reported as clickable");
+    assert.ok(holes.some(([x, y, w, hgt]) => y === 8 && hgt === 36 && w > 300), "toolbar reported as clickable");
     assert.ok(holes.every(([, y]) => y < 52));
     await h.page.evaluate(() => document.querySelector(".mac-top-actions .mac-library").click());
     await waitFor(() => h.page.evaluate(() => (document.querySelector(".default-sidebar")?.innerText ?? "").includes("尚未加入")), 3000, "library content");

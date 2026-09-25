@@ -99,9 +99,20 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         let spacing = mini.frame.minX - close.frame.minX
         for (index, button) in [close, mini, zoom].enumerated() {
             button.setFrameOrigin(
-                NSPoint(x: 20 + CGFloat(index) * spacing, y: (Self.titlebarHeight - button.frame.height) / 2))
+                NSPoint(
+                    x: Self.edgeInset + CGFloat(index) * spacing, y: (Self.titlebarHeight - button.frame.height) / 2))
+        }
+        let end = zoom.convert(zoom.bounds, to: nil).maxX
+        if end != trafficLightsEnd {
+            trafficLightsEnd = end
+            sendDocumentInfo()
         }
     }
+
+    /// Distance of the traffic lights (and everything else) from the window edges, in points.
+    static let edgeInset: CGFloat = 16
+    /// Where the traffic lights end; the page lays out its menu button from here.
+    private(set) var trafficLightsEnd: CGFloat = 70
 
     func windowDidResize(_ notification: Notification) { positionTrafficLights() }
     func windowDidBecomeKey(_ notification: Notification) { positionTrafficLights() }
@@ -226,7 +237,10 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     private func sendDocumentInfo() {
-        var info: [String: JSON] = ["fullscreen": .bool(window.styleMask.contains(.fullScreen))]
+        var info: [String: JSON] = [
+            "fullscreen": .bool(window.styleMask.contains(.fullScreen)),
+            "trafficLightsEnd": .double(Double(trafficLightsEnd)),
+        ]
         if let file = store.currentFile {
             info["name"] = .string(file.deletingPathExtension().lastPathComponent)
             info["folder"] = .string((file.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
