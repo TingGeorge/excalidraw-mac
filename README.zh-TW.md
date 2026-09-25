@@ -161,7 +161,7 @@ cd ../mac && swift build -c release        # macOS；Linux 上只會編譯 MCP �
 cd ../web && MCP_BIN=../mac/.build/release/excalidraw-mcp node --test test/mcp.test.mjs
 ```
 
-在 Linux 上，`test/fake-app.mjs` 會模擬 App（同樣的 socket 協定，操作轉給 headless Chromium 裡的真實網頁），所以 MCP 伺服器可以不用 Mac 就測試。GitHub Actions（`.github/workflows/excalidraw-mac.yml`）在 macOS 15 和 macOS 26 上建置真正的 App，讓 MCP 伺服器自己啟動它，照「使用者開檔 → agent 畫圖 → 使用者按 ⌘S」的流程跑同一套測試，另外測強制結束後未儲存的變更能否恢復，並截圖用 OCR 確認圖真的畫在視窗裡，推送版本標籤（`git tag v0.2.0 && git push origin v0.2.0`）時，所有 macOS 的測試都通過後，會把那次的建置發佈成最新的 Release。
+在 Linux 上，`test/fake-app.mjs` 會模擬 App（同樣的 socket 協定，操作轉給 headless Chromium 裡的真實網頁），所以 MCP 伺服器可以不用 Mac 就測試。GitHub Actions（`.github/workflows/excalidraw-mac.yml`）在 macOS 15 和 macOS 26 上建置真正的 App，讓 MCP 伺服器自己啟動它，照「使用者開檔 → agent 畫圖 → 使用者按 ⌘S」的流程跑同一套測試，另外測強制結束後未儲存的變更能否恢復，並截圖用 OCR 確認圖真的畫在視窗裡，要發佈新版本：在 Actions 頁面執行這個 workflow 並填入版本號（或推送 `v0.2.0` 這樣的標籤），所有 macOS 的測試都通過後，那次的建置就會發佈成最新的 Release。
 
 ## 授權
 

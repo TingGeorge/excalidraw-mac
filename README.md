@@ -146,7 +146,7 @@ cd ../mac && swift build -c release        # on Linux only the MCP server builds
 cd ../web && MCP_BIN=../mac/.build/release/excalidraw-mcp node --test test/mcp.test.mjs
 ```
 
-On Linux, `test/fake-app.mjs` stands in for the app (same socket protocol, operations run in the real page in headless Chromium), so the MCP server can be tested without a Mac. GitHub Actions builds the real app on macOS 15 and macOS 26, runs the same flow against it (user opens a file → agent draws → user presses ⌘S), clicks through the UI with real mouse and menu events, checks recovery after a forced quit. Pushing a version tag (`git tag v0.2.0 && git push origin v0.2.0`) publishes that build as the latest release once the tests pass on every macOS.
+On Linux, `test/fake-app.mjs` stands in for the app (same socket protocol, operations run in the real page in headless Chromium), so the MCP server can be tested without a Mac. GitHub Actions builds the real app on macOS 15 and macOS 26, runs the same flow against it (user opens a file → agent draws → user presses ⌘S), clicks through the UI with real mouse and menu events, checks recovery after a forced quit. To publish a release, run the workflow from the Actions tab with a version (or push a tag such as `v0.2.0`); the build becomes the latest release once the tests pass on every macOS.
 
 ## License
 
