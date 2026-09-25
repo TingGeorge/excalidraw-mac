@@ -70,13 +70,15 @@ test("title bar row of the drawing window", { skip: !(HOME && APP) && "needs the
 
   await t.test("the title bar row is on one grid (same heights, same gaps)", () => {
     const near = (a, b, what) => assert.ok(Math.abs(a - b) <= 1, `${what}: ${a}, expected ${b}`);
-    for (const k of ["menu", "toolbar", "actions", "title"]) {
+    // three frosted groups: [menu button + file name] [tools] [Library + Export]
+    for (const k of ["title", "toolbar", "actions"]) {
       near(d.rects[k].y, 8, `${k} top`);
       near(d.rects[k].height, 36, `${k} height`);
     }
-    near(win.trafficLightsStart, 16, "traffic lights from the left edge");
-    near(d.rects.menu.x - win.trafficLightsEnd, 12, "gap traffic lights → menu");
-    near(d.rects.title.x - (d.rects.menu.x + d.rects.menu.width), 12, "gap menu → file name");
+    near(d.rects.menu.y, 10, "menu button top (a 32 pt button in the group)");
+    near(d.rects.menu.height, 32, "menu button height");
+    near(win.trafficLights[0][0], 16, "traffic lights from the left edge");
+    near(d.rects.title.x - win.trafficLightsEnd, 12, "gap traffic lights → menu and file name");
     near(win.width - (d.rects.actions.x + d.rects.actions.width), 16, "Library/Export from the right edge");
   });
 
@@ -144,15 +146,39 @@ test("title bar row of the drawing window", { skip: !(HOME && APP) && "needs the
     await waitUntil(async () => (await bridge("diagnostics")).openDialog === null, 4000, "export dialog closed");
   });
 
-  /** The traffic lights stay centred in the 52 pt row, 16 pt from the left (H2, M5). */
+  /** All three traffic lights stay centred in the 52 pt row, 16 pt from the left, evenly
+   * spaced and not clipped (H2, M5). */
   async function assertLightsInRow(what) {
     for (const delay of [0, 150, 400, 1000]) {
       await sleep(delay);
       const w = await bridge("window_info");
-      assert.ok(Math.abs(w.trafficLightsStart - 16) <= 1, `${what}: lights start at ${w.trafficLightsStart}`);
-      assert.ok(Math.abs(w.trafficLightsMiddle - 26) <= 1, `${what}: lights centred at ${w.trafficLightsMiddle}`);
+      const lights = w.trafficLights;
+      const detail = `${what}: ${JSON.stringify(lights)}\n${w.trafficLightViews}`;
+      assert.equal(lights.length, 3, detail);
+      assert.ok(Math.abs(lights[0][0] - 16) <= 1, `close button not 16 pt from the left — ${detail}`);
+      const spacing = lights[1][0] - lights[0][0];
+      assert.ok(Math.abs(lights[2][0] - lights[1][0] - spacing) <= 1 && spacing > 10, `uneven spacing — ${detail}`);
+      for (const [i, [, middle, shown]] of lights.entries()) {
+        assert.ok(Math.abs(middle - 26) <= 1, `button ${i} centred at ${middle} — ${detail}`);
+        assert.ok(shown > 0.99, `button ${i} clipped (${shown}) — ${detail}`);
+      }
     }
   }
+
+  await t.test("traffic lights stay put while editing and saving (bug: green button jumps)", async () => {
+    console.log("traffic light views:\n" + (await bridge("window_info")).trafficLightViews);
+    await assertLightsInRow("start");
+    await bridge("add_elements", { elements: [{ type: "rectangle", x: -400, y: -300, width: 80, height: 60 }] });
+    await waitUntil(async () => (await bridge("status")).dirty, 4000, "drawing edited");
+    await assertLightsInRow("edited");
+    osa('tell application "System Events" to keystroke "s" using command down');
+    await waitUntil(async () => !(await bridge("status")).dirty, 4000, "saved with ⌘S");
+    await assertLightsInRow("saved");
+    clickMenu("Edit", "Select All"); // the properties panel appears
+    await assertLightsInRow("shapes selected");
+    osa('tell application "System Events" to key code 53');
+    await assertLightsInRow("selection cleared");
+  });
 
   await t.test("traffic lights stay put: dark mode, light mode, resizing (H2, M5)", async () => {
     await assertLightsInRow("start");

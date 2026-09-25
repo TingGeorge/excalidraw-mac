@@ -80,6 +80,27 @@ final class AppBridge {
                             canvas.window.standardWindowButton(.closeButton).map {
                                 frame.height - $0.convert($0.bounds, to: nil).midY
                             } ?? -1)),
+                    // Each of close / minimise / zoom: [left, middle from the top of the window,
+                    // how much of it is visible (1 = all)], plus the views holding it.
+                    "trafficLights": .array(
+                        canvas.trafficLights.map { button in
+                            let r = button.convert(button.bounds, to: nil)
+                            let shown = button.visibleRect.width * button.visibleRect.height
+                            return .array([
+                                .double(Double(r.minX)), .double(Double(frame.height - r.midY)),
+                                .double(Double(shown / max(1, r.width * r.height))),
+                            ])
+                        }),
+                    "trafficLightViews": .string(
+                        canvas.trafficLights.map { button in
+                            var chain: [String] = []
+                            var view: NSView? = button
+                            while let v = view {
+                                chain.append("\(type(of: v)) \(NSStringFromRect(v.frame))")
+                                view = v.superview
+                            }
+                            return chain.joined(separator: " < ")
+                        }.joined(separator: "\n")),
                     "appearance": .string(canvas.window.effectiveAppearance.name == .darkAqua ? "dark" : "light"),
                     // Only one of the drawing window and the start screen should ever show.
                     "visibleWindows": .int(NSApp.windows.filter { $0.isVisible && !($0 is NSPanel) }.count),

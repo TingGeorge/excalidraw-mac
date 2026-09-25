@@ -71,7 +71,6 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         _ = window.setFrameAutosaveName("ExcalidrawMainWindow")
         window.isRestorable = false
         positionTrafficLights()
-        watchTrafficLights()
         updateTitle()
         webView.load(URLRequest(url: SchemeHandler.startURL))
     }
@@ -81,51 +80,89 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
 
     func show() {
         window.makeKeyAndOrderFront(nil)
-        positionTrafficLights()
+        repositionTrafficLights()
         onShow?()
     }
 
+    /// The traffic lights, found anew each time: AppKit may replace them (the zoom button, with
+    /// its window tiling menu, on newer macOS).
+    var trafficLights: [NSButton] {
+        [.closeButton, .miniaturizeButton, .zoomButton].compactMap { window.standardWindowButton($0) }
+    }
+
     /// Moves the traffic lights down so they are centred in the 52 pt row the page's top bar
-    /// uses (the same thing Electron's `trafficLightPosition` does).
+    /// uses (the same thing Electron's `trafficLightPosition` does). Positions are worked out in
+    /// window coordinates, so it doesn't matter which views AppKit keeps the buttons in.
     private func positionTrafficLights() {
-        guard !positioningTrafficLights, !window.styleMask.contains(.fullScreen),
-            let close = window.standardWindowButton(.closeButton),
-            let mini = window.standardWindowButton(.miniaturizeButton),
-            let zoom = window.standardWindowButton(.zoomButton),
-            let titlebar = close.superview?.superview
-        else { return }
+        let buttons = trafficLights
+        guard !positioningTrafficLights, !window.styleMask.contains(.fullScreen), buttons.count == 3 else { return }
         positioningTrafficLights = true
         defer { positioningTrafficLights = false }
-        var frame = titlebar.frame
-        frame.size.height = Self.titlebarHeight
-        frame.origin.y = window.frame.height - Self.titlebarHeight
-        if titlebar.frame != frame { titlebar.frame = frame }
-        let spacing = Self.trafficLightSpacing
-        for (index, button) in [close, mini, zoom].enumerated() {
-            let origin = NSPoint(
-                x: Self.edgeInset + CGFloat(index) * spacing, y: ((Self.titlebarHeight - button.frame.height) / 2).rounded())
-            if button.frame.origin != origin { button.setFrameOrigin(origin) }
+        watchTrafficLights(buttons)
+        if trafficLightSpacing == nil {
+            // AppKit's own distance between the buttons, before we move them.
+            let x = buttons.map { $0.convert($0.bounds, to: nil).minX }
+            let spacing = ((x[2] - x[0]) / 2).rounded()
+            trafficLightSpacing = spacing > 10 && spacing < 40 ? spacing : 20
         }
-        let end = zoom.convert(zoom.bounds, to: nil).maxX
+        // The title bar views holding the buttons (just under the window's frame view) cover the
+        // whole 52 pt row, so nothing gets clipped.
+        let frameView = window.contentView?.superview
+        for button in buttons {
+            var view: NSView = button
+            while let parent = view.superview, parent !== frameView { view = parent }
+            guard view !== button, view.superview === frameView else { continue }
+            var frame = view.frame
+            frame.size.height = max(frame.height, Self.titlebarHeight)
+            frame.origin.y = window.frame.height - frame.height
+            if view.frame != frame { view.frame = frame }
+        }
+        let spacing = trafficLightSpacing ?? 20
+        for (index, button) in buttons.enumerated() {
+            guard let parent = button.superview else { continue }
+            let size = button.frame.size
+            let target = NSRect(
+                x: Self.edgeInset + CGFloat(index) * spacing,
+                y: (window.frame.height - Self.titlebarHeight / 2 - size.height / 2).rounded(),
+                width: size.width, height: size.height)
+            let origin = parent.convert(target, from: nil).origin
+            if abs(button.frame.minX - origin.x) > 0.25 || abs(button.frame.minY - origin.y) > 0.25 {
+                button.setFrameOrigin(origin)
+            }
+        }
+        let end = buttons[2].convert(buttons[2].bounds, to: nil).maxX
         if end != trafficLightsEnd {
             trafficLightsEnd = end
             sendDocumentInfo()
         }
     }
 
+    /// Places the traffic lights now and once more after AppKit's pending layout has run.
+    private func repositionTrafficLights() {
+        positionTrafficLights()
+        DispatchQueue.main.async { self.positionTrafficLights() }
+    }
+
     private var positioningTrafficLights = false
+    /// AppKit's distance between the traffic lights (close → minimise → zoom).
+    private var trafficLightSpacing: CGFloat?
     private var watchedTitlebarViews: [ObjectIdentifier: NSObjectProtocol] = [:]
 
     /// AppKit lays the title bar out again on its own: on resize, on full screen changes, when
-    /// the window becomes key and when the appearance (light / dark) changes. Each time it puts
-    /// the buttons back at the top of a 28 pt title bar, half outside our 52 pt row. So watch
-    /// the buttons and the title bar and put them back right away, before anything is drawn.
-    private func watchTrafficLights() {
-        guard let close = window.standardWindowButton(.closeButton) else { return }
-        let views = [
-            close, window.standardWindowButton(.miniaturizeButton), window.standardWindowButton(.zoomButton),
-            close.superview, close.superview?.superview,
-        ].compactMap { $0 }
+    /// the window becomes key, when the appearance (light / dark) or the title / edited state
+    /// changes. Each time it puts the buttons back at the top of a 28 pt title bar, half outside
+    /// our 52 pt row. So watch the buttons and the views holding them and put them back right
+    /// away, before anything is drawn.
+    private func watchTrafficLights(_ buttons: [NSButton]) {
+        let frameView = window.contentView?.superview
+        var views: [NSView] = []
+        for button in buttons {
+            var view: NSView? = button
+            while let v = view, v !== frameView {
+                views.append(v)
+                view = v.superview
+            }
+        }
         for view in views where watchedTitlebarViews[ObjectIdentifier(view)] == nil {
             view.postsFrameChangedNotifications = true
             watchedTitlebarViews[ObjectIdentifier(view)] = NotificationCenter.default.addObserver(
@@ -136,21 +173,17 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         }
     }
 
-    /// Standard distance between the traffic lights (close → minimise → zoom).
-    private static let trafficLightSpacing: CGFloat = 20
-
     /// Distance of the traffic lights (and everything else) from the window edges, in points.
     static let edgeInset: CGFloat = 16
     /// Where the traffic lights end; the page lays out its menu button from here.
     private(set) var trafficLightsEnd: CGFloat = 70
 
     func windowDidResize(_ notification: Notification) { positionTrafficLights() }
-    func windowDidBecomeKey(_ notification: Notification) { positionTrafficLights() }
-    func windowDidResignKey(_ notification: Notification) { positionTrafficLights() }
+    func windowDidBecomeKey(_ notification: Notification) { repositionTrafficLights() }
+    func windowDidResignKey(_ notification: Notification) { repositionTrafficLights() }
     func windowDidEnterFullScreen(_ notification: Notification) { sendDocumentInfo() }
     func windowDidExitFullScreen(_ notification: Notification) {
-        watchTrafficLights()
-        positionTrafficLights()
+        repositionTrafficLights()
         sendDocumentInfo()
     }
 
@@ -160,8 +193,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         let name: NSAppearance.Name = dark ? .darkAqua : .aqua
         if window.appearance?.name != name {
             window.appearance = NSAppearance(named: name)
-            positionTrafficLights()
-            DispatchQueue.main.async { self.positionTrafficLights() }
+            repositionTrafficLights()
         }
         if let background, window.backgroundColor != background { window.backgroundColor = background }
     }
@@ -268,9 +300,23 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     /// The page shows the file name and folder in the title bar row; the window title (hidden)
     /// is still set for the Window menu and Mission Control.
     func updateTitle() {
-        window.title = store.currentFile?.deletingPathExtension().lastPathComponent ?? "Excalidraw"
-        window.representedURL = store.currentFile
-        window.isDocumentEdited = store.dirty
+        // Each of these makes AppKit lay out the title bar again (and move the traffic lights):
+        // only set what changed, then put the lights back.
+        let title = store.currentFile?.deletingPathExtension().lastPathComponent ?? "Excalidraw"
+        var changed = false
+        if window.title != title {
+            window.title = title
+            changed = true
+        }
+        if window.representedURL != store.currentFile {
+            window.representedURL = store.currentFile
+            changed = true
+        }
+        if window.isDocumentEdited != store.dirty {
+            window.isDocumentEdited = store.dirty
+            changed = true
+        }
+        if changed { repositionTrafficLights() }
         sendDocumentInfo()
     }
 

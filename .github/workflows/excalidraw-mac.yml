@@ -12,7 +12,13 @@ permissions:
 
 jobs:
   macos:
-    runs-on: macos-15
+    # macOS 15 builds the release; the newest runner checks the same things on a newer macOS
+    # (AppKit lays the title bar out differently from version to version).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     defaults:
       run:
@@ -135,13 +141,13 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Excalidraw-macOS
+          name: Excalidraw-macOS-${{ matrix.os }}
           path: excalidraw-mac/build/Excalidraw-macOS.zip
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: excalidraw-screenshots
+          name: excalidraw-screenshots-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/*.png
             ${{ runner.temp }}/*.json
@@ -149,7 +155,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Publish download (GitHub release "excalidraw-mac-latest")
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: matrix.os == 'macos-15' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

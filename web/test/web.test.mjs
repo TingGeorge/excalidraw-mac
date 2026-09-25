@@ -180,12 +180,23 @@ test("bridge operations", async (t) => {
     ok(await h.call("set_document_info", { name: "flow", folder: "~/Desktop", trafficLightsEnd: 70 }));
     await new Promise((r) => setTimeout(r, 300));
     const { rects } = ok(await h.call("diagnostics"));
-    for (const k of ["menu", "toolbar", "actions", "title"]) {
+    // three frosted groups: [menu button + file name] [tools] [Library + Export]
+    for (const k of ["title", "toolbar", "actions"]) {
       assert.equal(rects[k].y, 8, `${k} top`);
       assert.equal(rects[k].height, 36, `${k} height`);
     }
-    assert.equal(rects.menu.x, 82, "12 pt after the traffic lights");
-    assert.equal(rects.title.x, rects.menu.x + rects.menu.width + 12, "12 pt after the menu button");
+    assert.equal(rects.title.x, 82, "12 pt after the traffic lights");
+    assert.deepEqual([rects.menu.x - rects.title.x, rects.menu.y, rects.menu.width, rects.menu.height], [2, 10, 32, 32],
+      "the menu button is a 32 pt button inside the group, like the tools");
+    assert.ok(rects.toolbar.x - (rects.title.x + rects.title.width) >= 12, "at least 12 pt before the tools");
+    const icons = await h.page.evaluate(() =>
+      [".main-menu-trigger svg", ".mac-library svg", ".mac-export svg", '.App-toolbar .ToolIcon__icon svg'].map((s) => {
+        const svg = document.querySelector(s);
+        const r = svg.getBoundingClientRect();
+        const stroke = parseFloat(getComputedStyle(svg.querySelector("path, line")).strokeWidth);
+        return [r.width, Math.round((stroke * r.width / svg.viewBox.baseVal.width) * 100) / 100];
+      }));
+    assert.deepEqual(icons, [[16, 1], [16, 1], [16, 1], [16, 1]], "every icon in the row: 16 pt, 1 pt lines");
     assert.equal(1280 - (rects.actions.x + rects.actions.width), 16, "16 pt from the right edge");
     const holes = h.messages.filter((m) => m.type === "titlebarHoles").at(-1).rects;
     assert.ok(holes.some(([x, y, w, hgt]) => y === 8 && hgt === 36 && w > 300), "toolbar reported as clickable");
