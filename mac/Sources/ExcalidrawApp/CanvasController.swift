@@ -12,7 +12,7 @@ extension UTType {
 /// The drawing window (the Excalidraw page) and the document commands (new / open / save / export).
 @MainActor
 final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
-    WKScriptMessageHandler, WKDownloadDelegate
+    WKScriptMessageHandler, WKDownloadDelegate, NSToolbarDelegate
 {
     let store: Store
     let window: NSWindow
@@ -50,6 +50,17 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         window.center()
         _ = window.setFrameAutosaveName("ExcalidrawMainWindow")
         window.isRestorable = false
+        // Title bar and toolbar take the canvas colour (see "appearance"), so the window reads
+        // as one surface: title + folder on the left, Library and Export on the right.
+        let toolbar = NSToolbar(identifier: "canvas")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.backgroundColor = .textBackgroundColor
         updateTitle()
         webView.load(URLRequest(url: SchemeHandler.startURL))
     }
@@ -109,11 +120,17 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             queued.forEach { $0() }
         case "dirty":
             store.setDirty(body["value"] as? Bool ?? false)
-            window.isDocumentEdited = store.dirty
+            updateTitle()
         case "autosave":
             if let scene = body["scene"] as? String { store.saveAutosave(scene: scene, theme: body["theme"] as? String) }
         case "library":
             if let items = body["items"] as? String { store.saveLibrary(items) }
+        case "appearance":
+            let dark = (body["theme"] as? String) == "dark"
+            window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            if let hex = body["background"] as? String, let color = NSColor(hex: hex) {
+                window.backgroundColor = color
+            }
         case "menu":
             switch body["action"] as? String {
             case "new": createDocument()
@@ -141,11 +158,74 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         store.currentFile?.lastPathComponent ?? "Excalidraw"
     }
 
+    /// Title "test", subtitle "~/Desktop · Edited".
     func updateTitle() {
-        window.title = displayName
-        window.representedURL = store.currentFile
+        guard let file = store.currentFile else {
+            window.title = "Excalidraw"
+            window.subtitle = ""
+            window.representedURL = nil
+            return
+        }
+        window.title = file.deletingPathExtension().lastPathComponent
+        let folder = (file.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
+        window.subtitle = store.dirty ? "\(folder) · \(L10n.t("Edited", "已編輯"))" : folder
+        window.representedURL = file
         window.isDocumentEdited = store.dirty
     }
+
+    /// Shows or hides the "AI agent connected" indicator on the canvas.
+    func setAgentConnected(_ connected: Bool) {
+        call("set_agent_status", ["connected": .bool(connected)]) { _ in }
+    }
+
+    // MARK: Toolbar (Library, Export)
+
+    private static let libraryItem = NSToolbarItem.Identifier("library")
+    private static let exportItem = NSToolbarItem.Identifier("export")
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, Self.libraryItem, Self.exportItem]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        switch id {
+        case Self.libraryItem:
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.label = L10n.t("Library", "資料庫")
+            item.toolTip = item.label
+            item.image = NSImage(systemSymbolName: "books.vertical", accessibilityDescription: item.label)
+            item.isBordered = true
+            item.target = self
+            item.action = #selector(toggleLibrary(_:))
+            return item
+        case Self.exportItem:
+            let item = NSMenuToolbarItem(itemIdentifier: id)
+            item.label = L10n.t("Export", "匯出")
+            item.toolTip = L10n.t("Export as PNG or SVG", "匯出為 PNG 或 SVG")
+            item.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: item.label)
+            item.showsIndicator = false
+            let menu = NSMenu()
+            let png = NSMenuItem(title: L10n.t("Export as PNG…", "匯出為 PNG…"), action: #selector(exportPNG(_:)), keyEquivalent: "")
+            png.target = self
+            let svg = NSMenuItem(title: L10n.t("Export as SVG…", "匯出為 SVG…"), action: #selector(exportSVG(_:)), keyEquivalent: "")
+            svg.target = self
+            menu.items = [png, svg]
+            item.menu = menu
+            return item
+        default:
+            return nil
+        }
+    }
+
+    @objc private func toggleLibrary(_ sender: Any?) { call("toggle_library") { _ in } }
+    @objc private func exportPNG(_ sender: Any?) { exportImage(format: "png") }
+    @objc private func exportSVG(_ sender: Any?) { exportImage(format: "svg") }
 
     /// Before closing the drawing or replacing it with another one: offer to save unsaved
     /// changes. true = go ahead ("Save" succeeded or "Don't Save").
@@ -236,6 +316,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             switch result {
             case .success:
                 self.store.documentOpened(url, dirty: recovered != nil)
+                if recovered == nil { self.refreshThumbnail() }
                 self.updateTitle()
                 NSDocumentController.shared.noteNewRecentDocumentURL(url)
                 self.show()
@@ -323,11 +404,21 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                 }
                 self.call("mark_saved") { _ in
                     self.store.documentOpened(url, dirty: false)
+                    self.refreshThumbnail()
                     self.updateTitle()
                     NSDocumentController.shared.noteNewRecentDocumentURL(url)
                     completion(nil)
                 }
             }
+        }
+    }
+
+    /// Updates the start screen's preview of the open file (an empty drawing has none).
+    private func refreshThumbnail() {
+        guard let file = store.currentFile else { return }
+        call("export_image", ["format": "png", "max_size": 480, "background": true, "padding": 32]) { result in
+            let png = (try? result.get())?["base64"]?.string.flatMap { Data(base64Encoded: $0) }
+            self.store.saveThumbnail(png, for: file)
         }
     }
 
@@ -487,6 +578,18 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         alert.addButton(withTitle: L10n.t("OK", "好"))
         alert.addButton(withTitle: L10n.t("Cancel", "取消"))
         return await alert.beginSheetModal(for: window) == .alertFirstButtonReturn
+    }
+}
+
+extension NSColor {
+    /// "#rrggbb" -> colour (sRGB).
+    convenience init?(hex: String) {
+        var text = hex.trimmingCharacters(in: .whitespaces)
+        if text.hasPrefix("#") { text.removeFirst() }
+        guard text.count == 6, let value = UInt32(text, radix: 16) else { return nil }
+        self.init(
+            srgbRed: CGFloat((value >> 16) & 0xff) / 255, green: CGFloat((value >> 8) & 0xff) / 255,
+            blue: CGFloat(value & 0xff) / 255, alpha: 1)
     }
 }
 #endif

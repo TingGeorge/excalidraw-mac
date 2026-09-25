@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Excalidraw,
   MainMenu,
@@ -7,7 +7,7 @@ import {
   useHandleLibrary,
 } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import { doc, flushAutosave, installBridge, scheduleAutosave, setDirty } from "./bridge";
+import { displayedBackground, doc, flushAutosave, installBridge, scheduleAutosave, setDirty } from "./bridge";
 import { uiStrings } from "./i18n";
 import { postNative, type Session } from "./native";
 
@@ -15,7 +15,29 @@ const menu = (action: "new" | "open" | "save" | "saveAs") => () => postNative({ 
 
 export function App({ session, langCode }: { session: Session; langCode: string }) {
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
+  const [agentConnected, setAgentConnected] = useState(false);
+  const [theme, setTheme] = useState("light");
+  const appearanceKey = useRef("");
   const t = uiStrings(langCode);
+
+  useEffect(() => {
+    const onStatus = (e: Event) => setAgentConnected((e as CustomEvent<boolean>).detail);
+    window.addEventListener("agent-status", onStatus);
+    return () => window.removeEventListener("agent-status", onStatus);
+  }, []);
+
+  /** Tell the app how the canvas looks, so the title bar can blend in. */
+  const syncAppearance = (appState: { theme: string; viewBackgroundColor: string }) => {
+    const key = `${appState.theme}|${appState.viewBackgroundColor}`;
+    if (key === appearanceKey.current) return;
+    appearanceKey.current = key;
+    setTheme(appState.theme);
+    postNative({
+      type: "appearance",
+      theme: appState.theme,
+      background: displayedBackground(appState.viewBackgroundColor, appState.theme),
+    });
+  };
 
   const initialData = useMemo(() => {
     const scene = session.scene ?? {};
@@ -49,6 +71,7 @@ export function App({ session, langCode }: { session: Session; langCode: string 
         return;
       }
       installBridge(api);
+      syncAppearance(api.getAppState());
       postNative({ type: "ready" });
     };
     waitForLoad();
@@ -61,14 +84,16 @@ export function App({ session, langCode }: { session: Session; langCode: string 
   }, [api]);
 
   return (
+    <>
     <Excalidraw
       excalidrawAPI={setApi}
       initialData={initialData as any}
       langCode={langCode}
       aiEnabled={false}
       UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false, export: false } }}
-      onChange={(elements) => {
-        if (!api || api.getAppState().isLoading) return;
+      onChange={(elements, appState) => {
+        if (!api || appState.isLoading) return;
+        syncAppearance(appState);
         const version = getSceneVersion(elements);
         if (doc.savedVersion === null) doc.savedVersion = session.dirty ? -1 : version;
         setDirty(version !== doc.savedVersion);
@@ -110,5 +135,7 @@ export function App({ session, langCode }: { session: Session; langCode: string 
         </WelcomeScreen.Center>
       </WelcomeScreen>
     </Excalidraw>
+    {agentConnected && <div className={`agent-status${theme === "dark" ? " dark" : ""}`}>{t.agent}</div>}
+    </>
   );
 }

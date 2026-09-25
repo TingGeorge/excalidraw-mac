@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             store: store,
             onNew: { canvas.createDocument() },
             onOpen: { canvas.openDocument() },
+            onAgentSetup: { [weak self] in self?.showAgentSetup(nil) },
             onOpenRecent: { [weak self] url in self?.openFile(url) })
 
         let bridge = AppBridge(canvas: canvas, store: store)

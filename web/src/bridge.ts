@@ -553,7 +553,8 @@ async function exportImage(api: Api, p: Params) {
     mimeType: "image/png",
     getDimensions: (w: number, h: number) => {
       // Stay under WebKit's maximum canvas area.
-      const scale = Math.min(wanted, Math.sqrt(16_000_000 / Math.max(w * h, 1)));
+      const fit = typeof p.max_size === "number" && p.max_size > 0 ? p.max_size / Math.max(w, h, 1) : Infinity;
+      const scale = Math.min(wanted, fit, Math.sqrt(16_000_000 / Math.max(w * h, 1)));
       size = { width: Math.round(w * scale), height: Math.round(h * scale) };
       return { ...size, scale };
     },
@@ -624,7 +625,33 @@ const ops: Record<string, (api: Api, p: Params) => unknown> = {
     return {};
   },
   status: (api) => ({ dirty: doc.dirty, elementCount: liveElements(api).length }),
+  toggle_library: (api) => {
+    api.toggleSidebar({ name: "default" });
+    return {};
+  },
+  set_agent_status: (_api, p) => {
+    window.dispatchEvent(new CustomEvent("agent-status", { detail: !!p.connected }));
+    return {};
+  },
 };
+
+/** How the canvas background looks on screen (dark theme inverts it like Excalidraw's CSS filter). */
+export function displayedBackground(hex: string, theme: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return theme === "dark" ? "#121212" : "#ffffff";
+  let [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255);
+  if (theme === "dark") {
+    // invert(93%) then hue-rotate(180deg), as in Excalidraw's --theme-filter
+    [r, g, b] = [r, g, b].map((c) => 0.93 * (1 - c) + 0.07 * c);
+    [r, g, b] = [
+      -0.574 * r + 1.43 * g + 0.144 * b,
+      0.426 * r + 0.43 * g + 0.144 * b,
+      0.426 * r + 1.43 * g - 0.856 * b,
+    ];
+  }
+  const hex2 = (c: number) => Math.round(Math.min(1, Math.max(0, c)) * 255).toString(16).padStart(2, "0");
+  return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
+}
 
 export function installBridge(api: Api) {
   window.excalidrawBridge = {

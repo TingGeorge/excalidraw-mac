@@ -9,6 +9,8 @@ export type NativeMessage =
   | { type: "dirty"; value: boolean }
   | { type: "autosave"; scene: string; theme: string }
   | { type: "library"; items: string }
+  /** The canvas colour as displayed, so the window's title bar can match it. */
+  | { type: "appearance"; theme: string; background: string }
   | { type: "menu"; action: "new" | "open" | "save" | "saveAs" };
 
 export type Session = {

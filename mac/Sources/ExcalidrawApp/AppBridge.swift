@@ -30,6 +30,9 @@ final class AppBridge {
                 self?.handle(line) { reply in try? connection.writeLine(reply) }
             }
         }
+        server.onConnectionsChanged = { [weak self] count in
+            Task { @MainActor in self?.canvas.setAgentConnected(count > 0) }
+        }
         try server.start()
         self.server = server
     }

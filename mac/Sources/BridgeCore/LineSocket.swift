@@ -168,6 +168,10 @@ public final class LineServer: @unchecked Sendable {
     public let path: String
     private let onLine: @Sendable (String, LineConnection) -> Void
     private var listenFD: Int32 = -1
+    private let countLock = NSLock()
+    private var connections = 0
+    /// Called (on a background thread) whenever a client connects or disconnects.
+    public var onConnectionsChanged: (@Sendable (Int) -> Void)?
 
     public init(path: String, onLine: @escaping @Sendable (String, LineConnection) -> Void) {
         self.path = path
@@ -210,6 +214,14 @@ public final class LineServer: @unchecked Sendable {
         }
     }
 
+    private func changeConnections(by delta: Int) {
+        countLock.lock()
+        connections += delta
+        let now = connections
+        countLock.unlock()
+        onConnectionsChanged?(now)
+    }
+
     private func acceptLoop(_ fd: Int32) {
         while true {
             let client = accept(fd, nil, nil)
@@ -218,11 +230,13 @@ public final class LineServer: @unchecked Sendable {
                 return  // listening socket closed
             }
             let conn = LineConnection(fd: client)
-            let t = Thread { [onLine] in
+            changeConnections(by: 1)
+            let t = Thread { [onLine, weak self] in
                 while let line = try? conn.readLine() {
                     if !line.isEmpty { onLine(line, conn) }
                 }
                 conn.close()
+                self?.changeConnections(by: -1)
             }
             t.name = "bridge-connection"
             t.start()

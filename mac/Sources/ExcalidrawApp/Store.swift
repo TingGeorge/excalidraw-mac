@@ -1,5 +1,6 @@
 #if os(macOS)
 import BridgeCore
+import CryptoKit
 import Foundation
 
 /// App state kept in ~/Library/Application Support/Excalidraw/:
@@ -81,6 +82,26 @@ final class Store {
         recentFiles.removeAll { $0.standardizedFileURL == url.standardizedFileURL }
         if recoverableFile == url { recoverableFile = nil }
         persistState()
+    }
+
+    /// A small preview of `file` for the start screen (written when the file is opened or saved).
+    func thumbnailURL(for file: URL) -> URL {
+        let digest = SHA256.hash(data: Data(file.standardizedFileURL.path.utf8))
+        let name = digest.map { String(format: "%02x", $0) }.joined().prefix(32)
+        return directory.appendingPathComponent("thumbnails/\(name).png")
+    }
+
+    func saveThumbnail(_ png: Data?, for file: URL) {
+        let url = thumbnailURL(for: file)
+        io.async {
+            if let png {
+                try? FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? png.write(to: url, options: .atomic)
+            } else {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
     }
 
     func saveAutosave(scene: String, theme: String?) {

@@ -1,0 +1,103 @@
+/* macOS look for Excalidraw's own UI: system font, quieter chrome, frosted
+   panels, a solid accent for the selected tool. Only CSS variables and a few
+   stable class names are touched, so Excalidraw updates keep working. */
+.excalidraw {
+  --mac-accent: #6965db;
+  --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Hiragino Sans", system-ui, sans-serif;
+  --border-radius-lg: 10px;
+  --island-bg-color: rgba(255, 255, 255, 0.8);
+  --shadow-island: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+.excalidraw.theme--dark {
+  --island-bg-color: rgba(44, 44, 50, 0.8);
+  --shadow-island: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.excalidraw .Island {
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+/* No number badges on the tools and no hint line under the toolbar. */
+.excalidraw .ToolIcon__keybinding,
+.excalidraw .HintViewer {
+  display: none;
+}
+
+/* Selected tool: solid accent, white icon. */
+.excalidraw .ToolIcon .ToolIcon_type_radio:checked + .ToolIcon__icon,
+.excalidraw .ToolIcon .ToolIcon_type_checkbox:checked + .ToolIcon__icon {
+  background: var(--mac-accent);
+  --icon-fill-color: #ffffff;
+}
+.excalidraw .ToolIcon .ToolIcon_type_radio:checked + .ToolIcon__icon svg,
+.excalidraw .ToolIcon .ToolIcon_type_checkbox:checked + .ToolIcon__icon svg {
+  color: #ffffff;
+}
+
+/* The Library button lives in the window's toolbar instead. */
+.excalidraw .default-sidebar-trigger {
+  display: none;
+}
+
+/* "AI agent connected" indicator, bottom right next to the help button. */
+.agent-status {
+  position: fixed;
+  right: 64px;
+  bottom: 16px;
+  z-index: 10;
+  height: 36px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", system-ui, sans-serif;
+  color: #3a3a3c;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  pointer-events: none;
+}
+.agent-status.dark {
+  color: #d7d8de;
+  background: rgba(44, 44, 50, 0.8);
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.agent-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34c759;
+}
+
+/* Menu, zoom, undo/redo and help: the same frosted panels as the toolbar. */
+.excalidraw .main-menu-trigger,
+.excalidraw .help-icon,
+.excalidraw .zoom-actions,
+.excalidraw .undo-redo-buttons {
+  background-color: var(--island-bg-color);
+  box-shadow: var(--shadow-island);
+  border-radius: var(--border-radius-lg);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+/* Excalidraw paints these buttons with !important; only !important overrides it. */
+.excalidraw .zoom-actions .zoom-button,
+.excalidraw .undo-redo-buttons button {
+  background-color: transparent !important;
+}
+.excalidraw .main-menu-trigger:hover,
+.excalidraw .help-icon:hover,
+.excalidraw .zoom-actions .zoom-button:hover,
+.excalidraw .undo-redo-buttons button:hover {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+}
+.excalidraw.theme--dark .main-menu-trigger:hover,
+.excalidraw.theme--dark .help-icon:hover,
+.excalidraw.theme--dark .zoom-actions .zoom-button:hover,
+.excalidraw.theme--dark .undo-redo-buttons button:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}

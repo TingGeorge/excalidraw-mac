@@ -160,6 +160,25 @@ test("bridge operations", async (t) => {
     assert.ok(d.loadedFonts.includes("Xiaolai"), "CJK handwriting font for 你好");
   });
 
+  await t.test("window appearance, library toggle, agent indicator", async () => {
+    const appearance = h.messages.filter((m) => m.type === "appearance").at(-1);
+    assert.deepEqual(appearance, { type: "appearance", theme: "light", background: "#ffffff" });
+    ok(await h.call("toggle_library"));
+    await waitFor(() => h.page.evaluate(() => !!document.querySelector(".default-sidebar")), 3000, "library sidebar");
+    ok(await h.call("toggle_library"));
+    ok(await h.call("set_agent_status", { connected: true }));
+    await waitFor(() => h.page.evaluate(() => document.querySelector(".agent-status")?.textContent === "AI Agent 已連線"), 3000, "agent pill");
+    ok(await h.call("set_agent_status", { connected: false }));
+    await waitFor(() => h.page.evaluate(() => !document.querySelector(".agent-status")), 3000, "agent pill hidden");
+    // no number badges or hint line in the macOS look
+    assert.equal(await h.page.evaluate(() => getComputedStyle(document.querySelector(".ToolIcon__keybinding")).display), "none");
+  });
+
+  await t.test("thumbnail export respects max_size", async () => {
+    const png = ok(await h.call("export_image", { format: "png", max_size: 200 }));
+    assert.ok(Math.max(png.width, png.height) <= 200, `${png.width}x${png.height}`);
+  });
+
   await t.test("offline: nothing was fetched from the internet", () => {
     assert.deepEqual(h.external, []);
     assert.deepEqual(h.errors, []);
@@ -185,6 +204,8 @@ test("restores the saved session", async (t) => {
   assert.equal(s.elementCount, 1);
   assert.equal(s.elements[0].id, "r1");
   assert.equal(s.theme, "dark");
+  const appearance = h.messages.filter((m) => m.type === "appearance").at(-1);
+  assert.equal(appearance.background, "#1e1900", "matches the pixel Excalidraw draws for #fff9db in dark mode");
   assert.equal(s.viewBackgroundColor, "#fff9db");
   assert.equal(await h.page.evaluate(() => document.documentElement.lang), "en");
   // dirty: true from the session survives until the next save
