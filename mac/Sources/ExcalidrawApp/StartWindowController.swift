@@ -433,18 +433,4 @@ private final class RecentRow: HoverRow {
     }
 }
 
-/// A menu item that runs a closure.
-private final class ClosureMenuItem: NSMenuItem {
-    private let run: () -> Void
-
-    init(title: String, run: @escaping () -> Void) {
-        self.run = run
-        super.init(title: title, action: #selector(perform(_:)), keyEquivalent: "")
-        target = self
-    }
-
-    required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    @objc private func perform(_ sender: Any?) { run() }
-}
 #endif

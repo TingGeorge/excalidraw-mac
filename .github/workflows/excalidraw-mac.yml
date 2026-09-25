@@ -46,6 +46,12 @@ jobs:
           REAL_APP: "1"
         run: node --test test/mcp.test.mjs
 
+      - name: Real clicks on the drawing window (tools and buttons in the title bar row, dragging)
+        working-directory: excalidraw-mac/web
+        env:
+          EXCALIDRAW_APP_PATH: ${{ env.APP }}
+        run: node --test test/ui-mac.test.mjs
+
       - name: WebKit diagnostics, screenshot + OCR of the running app
         working-directory: excalidraw-mac/web
         run: |

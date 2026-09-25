@@ -1,20 +1,34 @@
 /* macOS look for Excalidraw's own UI: system font, quieter chrome, frosted
-   panels, a solid accent for the selected tool. Only CSS variables and a few
-   stable class names are touched, so Excalidraw updates keep working. */
+   toolbar and corner buttons, a solid accent for the selected tool. Only CSS
+   variables and a few stable class names are touched, so Excalidraw updates
+   keep working. Panels with content (sidebar, properties, menus, dialogs)
+   keep Excalidraw's solid backgrounds. */
 .excalidraw {
   --mac-accent: #6965db;
+  --mac-glass-bg: rgba(255, 255, 255, 0.8);
+  --mac-glass-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
   --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Hiragino Sans", system-ui, sans-serif;
   --border-radius-lg: 10px;
-  --island-bg-color: rgba(255, 255, 255, 0.8);
-  --shadow-island: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 .excalidraw.theme--dark {
-  --island-bg-color: rgba(44, 44, 50, 0.8);
-  --shadow-island: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.4);
+  --mac-glass-bg: rgba(44, 44, 50, 0.8);
+  --mac-glass-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.4);
 }
-.excalidraw .Island {
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
+
+/* The canvas fills the whole window; Excalidraw's top row sits in the title
+   bar row (52 px, centred on the traffic lights), after the traffic lights. */
+:root {
+  --mac-traffic-lights: 68px;
+}
+:root.mac-fullscreen {
+  --mac-traffic-lights: 0px;
+}
+.excalidraw .FixedSideContainer_side_top {
+  top: 4px;
+}
+.excalidraw .App-menu_top__left {
+  margin-top: 4px;
+  margin-left: var(--mac-traffic-lights);
 }
 
 /* No number badges on the tools and no hint line under the toolbar. */
@@ -73,13 +87,14 @@
   background: #34c759;
 }
 
-/* Menu, zoom, undo/redo and help: the same frosted panels as the toolbar. */
+/* Toolbar, menu, zoom, undo/redo and help: frosted glass. */
+.excalidraw .Island.App-toolbar,
 .excalidraw .main-menu-trigger,
 .excalidraw .help-icon,
 .excalidraw .zoom-actions,
 .excalidraw .undo-redo-buttons {
-  background-color: var(--island-bg-color);
-  box-shadow: var(--shadow-island);
+  background-color: var(--mac-glass-bg);
+  box-shadow: var(--mac-glass-shadow);
   border-radius: var(--border-radius-lg);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
@@ -100,4 +115,64 @@
 .excalidraw.theme--dark .zoom-actions .zoom-button:hover,
 .excalidraw.theme--dark .undo-redo-buttons button:hover {
   background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* File name and folder, next to the menu button (the window's title). */
+.mac-title {
+  position: fixed;
+  top: 8px;
+  left: calc(16px + var(--mac-traffic-lights) + 46px);
+  height: 36px;
+  max-width: calc((100vw - 96px) / 4 - var(--mac-traffic-lights) - 50px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  z-index: 3;
+  pointer-events: none;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", system-ui, sans-serif;
+  color: #1d1d1f;
+}
+.mac-title div {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mac-title .name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.mac-title .folder {
+  font-size: 11px;
+  color: #86868b;
+}
+.mac-title.dark {
+  color: #ececf1;
+}
+.mac-title.dark .folder {
+  color: #98989f;
+}
+
+/* Library and Export, top right. */
+.mac-top-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+}
+.mac-top-actions button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-on-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mac-top-actions button:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+.excalidraw.theme--dark .mac-top-actions button:hover {
+  background: rgba(255, 255, 255, 0.08);
 }

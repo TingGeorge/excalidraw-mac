@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let canvas = CanvasController(store: store)
         canvas.onDocumentChanged = { [weak self] in self?.showRightWindow() }
+        // Only one window at a time: the drawing, or the start screen.
+        canvas.onShow = { [weak self] in self?.start?.hide() }
         self.canvas = canvas
         start = StartWindowController(
             store: store,
@@ -34,7 +36,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             NSLog("Excalidraw: AI agent bridge not available: \(error)")
         }
 
-        if let url = pendingFiles.first { openFile(url) } else { showRightWindow() }
+        // Launched by opening a file (Finder, `open file.excalidraw`): go straight to it. The
+        // file may also arrive just after launch, so wait one turn before showing the start screen.
+        if let url = pendingFiles.first {
+            openFile(url)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.openingFile else { return }
+                self.showRightWindow()
+            }
+        }
         pendingFiles = []
 
         // `kill` / `killall Excalidraw`: keep unsaved changes as a recovery copy and exit
@@ -72,15 +83,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if canvas == nil { pendingFiles = [url] } else { openFile(url) }
     }
 
+    /// True while a file is being opened (so the start screen doesn't flash up meanwhile).
+    private var openingFile = false
+
     private func openFile(_ url: URL) {
         guard let canvas else { return }
         if canvas.store.currentFile?.standardizedFileURL == url.standardizedFileURL {
             return canvas.show()
         }
+        openingFile = true
         canvas.confirmClosing { ok in
-            guard ok else { return }
+            guard ok else {
+                self.openingFile = false
+                return self.showRightWindow()
+            }
             canvas.open(url) { error in
-                guard let error else { return }
+                self.openingFile = false
+                guard let error else { return self.showRightWindow() }
                 if !FileManager.default.fileExists(atPath: url.path) { self.store.removeRecent(url) }
                 canvas.showError(error)
                 self.showRightWindow()

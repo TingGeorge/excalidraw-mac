@@ -12,13 +12,16 @@ extension UTType {
 /// The drawing window (the Excalidraw page) and the document commands (new / open / save / export).
 @MainActor
 final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
-    WKScriptMessageHandler, WKDownloadDelegate, NSToolbarDelegate
+    WKScriptMessageHandler, WKDownloadDelegate
 {
     let store: Store
     let window: NSWindow
     let webView: WKWebView
     private var ready = false
     private var whenReady: [() -> Void] = []
+    private let dragArea = TitlebarDragArea()
+    /// The title bar row the page's top bar shares, centred on the traffic lights.
+    static let titlebarHeight: CGFloat = 52
 
     init(store: Store) {
         self.store = store
@@ -31,10 +34,10 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             WKUserScript(
                 source: "window.__NATIVE_LANG__ = \(language);", injectionTime: .atDocumentStart,
                 forMainFrameOnly: true))
-        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 820), configuration: config)
+        webView = CanvasWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 820), configuration: config)
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
         super.init()
 
@@ -42,31 +45,70 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         webView.navigationDelegate = self
         webView.uiDelegate = self
         if #available(macOS 13.3, *) { webView.isInspectable = true }
-        window.contentView = webView
+        // The canvas fills the whole window, title bar included: the page puts its menu button,
+        // the file name, the tools, Library and Export in the traffic lights' row (see mac.css).
+        // A transparent layer over that row drags the window wherever there is no button.
+        let container = NSView(frame: webView.frame)
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+        dragArea.frame = NSRect(
+            x: 0, y: container.bounds.height - Self.titlebarHeight, width: container.bounds.width,
+            height: Self.titlebarHeight)
+        dragArea.autoresizingMask = [.width, .minYMargin]
+        container.addSubview(dragArea)
+        window.contentView = container
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = .textBackgroundColor
         window.delegate = self
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        window.minSize = NSSize(width: 600, height: 400)
+        // Narrower than this and Excalidraw switches to its phone layout.
+        window.minSize = NSSize(width: 820, height: 500)
         window.center()
         _ = window.setFrameAutosaveName("ExcalidrawMainWindow")
         window.isRestorable = false
-        // Title bar and toolbar take the canvas colour (see "appearance"), so the window reads
-        // as one surface: title + folder on the left, Library and Export on the right.
-        let toolbar = NSToolbar(identifier: "canvas")
-        toolbar.delegate = self
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        window.toolbar = toolbar
-        window.toolbarStyle = .unified
-        window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
-        window.backgroundColor = .textBackgroundColor
+        positionTrafficLights()
         updateTitle()
         webView.load(URLRequest(url: SchemeHandler.startURL))
     }
 
+    /// Called whenever the drawing window is shown (the app hides the start screen).
+    var onShow: (() -> Void)?
+
     func show() {
         window.makeKeyAndOrderFront(nil)
+        positionTrafficLights()
+        onShow?()
+    }
+
+    /// Moves the traffic lights down so they are centred in the 52 pt row the page's top bar
+    /// uses (the same thing Electron's `trafficLightPosition` does). AppKit lays the title bar
+    /// out again on resize and full screen changes, so this runs after those too.
+    private func positionTrafficLights() {
+        guard !window.styleMask.contains(.fullScreen),
+            let close = window.standardWindowButton(.closeButton),
+            let mini = window.standardWindowButton(.miniaturizeButton),
+            let zoom = window.standardWindowButton(.zoomButton),
+            let titlebar = close.superview?.superview
+        else { return }
+        var frame = titlebar.frame
+        frame.size.height = Self.titlebarHeight
+        frame.origin.y = window.frame.height - Self.titlebarHeight
+        titlebar.frame = frame
+        let spacing = mini.frame.minX - close.frame.minX
+        for (index, button) in [close, mini, zoom].enumerated() {
+            button.setFrameOrigin(
+                NSPoint(x: 20 + CGFloat(index) * spacing, y: (Self.titlebarHeight - button.frame.height) / 2))
+        }
+    }
+
+    func windowDidResize(_ notification: Notification) { positionTrafficLights() }
+    func windowDidBecomeKey(_ notification: Notification) { positionTrafficLights() }
+    func windowDidEnterFullScreen(_ notification: Notification) { sendDocumentInfo() }
+    func windowDidExitFullScreen(_ notification: Notification) {
+        positionTrafficLights()
+        sendDocumentInfo()
     }
 
     // MARK: Calling the page
@@ -125,6 +167,22 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             if let scene = body["scene"] as? String { store.saveAutosave(scene: scene, theme: body["theme"] as? String) }
         case "library":
             if let items = body["items"] as? String { store.saveLibrary(items) }
+        case "titlebarHoles":
+            let rects = body["rects"] as? [[Double]] ?? []
+            dragArea.holes = rects.compactMap { r in
+                r.count == 4 ? NSRect(x: r[0], y: r[1], width: r[2], height: r[3]) : nil
+            }
+        case "exportMenu":
+            let x = body["x"] as? Double ?? 0
+            let y = body["y"] as? Double ?? 0
+            let menu = NSMenu()
+            for (title, format) in [
+                (L10n.t("Export as PNG…", "匯出為 PNG…"), "png"), (L10n.t("Export as SVG…", "匯出為 SVG…"), "svg"),
+            ] {
+                menu.addItem(ClosureMenuItem(title: title) { [weak self] in self?.exportImage(format: format) })
+            }
+            // WKWebView is flipped: page coordinates map directly.
+            menu.popUp(positioning: nil, at: NSPoint(x: x, y: y), in: webView)
         case "appearance":
             let dark = (body["theme"] as? String) == "dark"
             window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -158,74 +216,28 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         store.currentFile?.lastPathComponent ?? "Excalidraw"
     }
 
-    /// Title "test", subtitle "~/Desktop · Edited".
+    /// The page shows the file name and folder in the title bar row; the window title (hidden)
+    /// is still set for the Window menu and Mission Control.
     func updateTitle() {
-        guard let file = store.currentFile else {
-            window.title = "Excalidraw"
-            window.subtitle = ""
-            window.representedURL = nil
-            return
-        }
-        window.title = file.deletingPathExtension().lastPathComponent
-        let folder = (file.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
-        window.subtitle = store.dirty ? "\(folder) · \(L10n.t("Edited", "已編輯"))" : folder
-        window.representedURL = file
+        window.title = store.currentFile?.deletingPathExtension().lastPathComponent ?? "Excalidraw"
+        window.representedURL = store.currentFile
         window.isDocumentEdited = store.dirty
+        sendDocumentInfo()
+    }
+
+    private func sendDocumentInfo() {
+        var info: [String: JSON] = ["fullscreen": .bool(window.styleMask.contains(.fullScreen))]
+        if let file = store.currentFile {
+            info["name"] = .string(file.deletingPathExtension().lastPathComponent)
+            info["folder"] = .string((file.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
+        }
+        call("set_document_info", .object(info)) { _ in }
     }
 
     /// Shows or hides the "AI agent connected" indicator on the canvas.
     func setAgentConnected(_ connected: Bool) {
         call("set_agent_status", ["connected": .bool(connected)]) { _ in }
     }
-
-    // MARK: Toolbar (Library, Export)
-
-    private static let libraryItem = NSToolbarItem.Identifier("library")
-    private static let exportItem = NSToolbarItem.Identifier("export")
-
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, Self.libraryItem, Self.exportItem]
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
-    }
-
-    func toolbar(
-        _ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool
-    ) -> NSToolbarItem? {
-        switch id {
-        case Self.libraryItem:
-            let item = NSToolbarItem(itemIdentifier: id)
-            item.label = L10n.t("Library", "資料庫")
-            item.toolTip = item.label
-            item.image = NSImage(systemSymbolName: "books.vertical", accessibilityDescription: item.label)
-            item.isBordered = true
-            item.target = self
-            item.action = #selector(toggleLibrary(_:))
-            return item
-        case Self.exportItem:
-            let item = NSMenuToolbarItem(itemIdentifier: id)
-            item.label = L10n.t("Export", "匯出")
-            item.toolTip = L10n.t("Export as PNG or SVG", "匯出為 PNG 或 SVG")
-            item.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: item.label)
-            item.showsIndicator = false
-            let menu = NSMenu()
-            let png = NSMenuItem(title: L10n.t("Export as PNG…", "匯出為 PNG…"), action: #selector(exportPNG(_:)), keyEquivalent: "")
-            png.target = self
-            let svg = NSMenuItem(title: L10n.t("Export as SVG…", "匯出為 SVG…"), action: #selector(exportSVG(_:)), keyEquivalent: "")
-            svg.target = self
-            menu.items = [png, svg]
-            item.menu = menu
-            return item
-        default:
-            return nil
-        }
-    }
-
-    @objc private func toggleLibrary(_ sender: Any?) { call("toggle_library") { _ in } }
-    @objc private func exportPNG(_ sender: Any?) { exportImage(format: "png") }
-    @objc private func exportSVG(_ sender: Any?) { exportImage(format: "svg") }
 
     /// Before closing the drawing or replacing it with another one: offer to save unsaved
     /// changes. true = go ahead ("Save" succeeded or "Don't Save").
@@ -579,6 +591,57 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         alert.addButton(withTitle: L10n.t("Cancel", "取消"))
         return await alert.beginSheetModal(for: window) == .alertFirstButtonReturn
     }
+}
+
+/// The page's web view. It never moves the window itself (the drag area does that).
+private final class CanvasWebView: WKWebView {
+    override var mouseDownCanMoveWindow: Bool { false }
+}
+
+/// Covers the title bar row. Clicks on the page's buttons there (the "holes" the page reports)
+/// go through to the page; anywhere else drags the window, and a double-click zooms or
+/// minimises it as set in System Settings.
+private final class TitlebarDragArea: NSView {
+    var holes: [NSRect] = []
+
+    override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        guard bounds.contains(local), !holes.contains(where: { $0.contains(local) }) else { return nil }
+        return self
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        if event.clickCount == 2 {
+            switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+            case "Minimize": window.performMiniaturize(nil)
+            case "None": break
+            default: window.performZoom(nil)
+            }
+        } else {
+            window.performDrag(with: event)
+        }
+    }
+}
+
+/// A menu item that runs a closure.
+final class ClosureMenuItem: NSMenuItem {
+    private let run: () -> Void
+
+    init(title: String, run: @escaping () -> Void) {
+        self.run = run
+        super.init(title: title, action: #selector(perform(_:)), keyEquivalent: "")
+        target = self
+    }
+
+    required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    @objc private func perform(_ sender: Any?) { run() }
 }
 
 extension NSColor {

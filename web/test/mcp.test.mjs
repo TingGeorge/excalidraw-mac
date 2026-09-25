@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -29,6 +30,22 @@ const jsonOf = (res) => {
   return JSON.parse(textOf(res));
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Calls the app's bridge socket directly (test-only methods such as window_info). */
+function appBridge(home, method, params = {}) {
+  return new Promise((resolve, reject) => {
+    const sock = connect(join(home, "bridge.sock"), () => sock.write(JSON.stringify({ id: 1, method, params }) + "\n"));
+    let buf = "";
+    sock.on("data", (d) => {
+      buf += d;
+      if (!buf.includes("\n")) return;
+      sock.end();
+      const reply = JSON.parse(buf);
+      reply.ok ? resolve(reply.result) : reject(new Error(reply.error));
+    });
+    sock.on("error", reject);
+  });
+}
 
 test("excalidraw-mcp end to end", { skip: !MCP_BIN && "set MCP_BIN" }, async (t) => {
   // Keep the socket path short: macOS limits Unix socket paths to 104 bytes.
@@ -64,7 +81,12 @@ test("excalidraw-mcp end to end", { skip: !MCP_BIN && "set MCP_BIN" }, async (t)
     execFileSync("open", ["-g", "-a", APP, "--env", `EXCALIDRAW_MAC_HOME=${home}`, path]);
     for (let i = 0; i < 100; i++) {
       const res = await call("get_scene", { include_elements: false });
-      if (!res.isError && JSON.parse(textOf(res)).file === path) return;
+      if (!res.isError && JSON.parse(textOf(res)).file === path) {
+        await sleep(500);
+        const win = await appBridge(home, "window_info");
+        assert.equal(win.visibleWindows, 1, "only the drawing window shows (the start screen is gone)");
+        return;
+      }
       await sleep(200);
     }
     assert.fail(`the app did not open ${path}`);

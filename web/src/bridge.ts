@@ -37,6 +37,7 @@ export function setDirty(value: boolean) {
   if (doc.dirty !== value) {
     doc.dirty = value;
     postNative({ type: "dirty", value });
+    window.dispatchEvent(new CustomEvent("dirty", { detail: value }));
   }
 }
 
@@ -597,6 +598,20 @@ function diagnostics(api: Api) {
     loadedFonts: [...new Set(faces.filter((f) => f.status === "loaded").map((f) => f.family))],
     dirty: doc.dirty,
     sceneVersion: getSceneVersion(api.getSceneElementsIncludingDeleted()),
+    activeTool: api.getAppState().activeTool.type,
+    sidebarOpen: !!document.querySelector(".default-sidebar"),
+    // Where things are on screen, for UI tests that click them.
+    rects: Object.fromEntries(
+      Object.entries({
+        toolbar: ".App-toolbar",
+        rectangleTool: '.ToolIcon:has([data-testid="toolbar-rectangle"])',
+        menu: ".main-menu-trigger",
+        library: ".mac-top-actions .mac-library",
+      }).map(([k, sel]) => {
+        const r = document.querySelector(sel)?.getBoundingClientRect();
+        return [k, r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null];
+      }),
+    ),
   };
 }
 
@@ -626,7 +641,12 @@ const ops: Record<string, (api: Api, p: Params) => unknown> = {
   },
   status: (api) => ({ dirty: doc.dirty, elementCount: liveElements(api).length }),
   toggle_library: (api) => {
-    api.toggleSidebar({ name: "default" });
+    api.toggleSidebar({ name: "default", tab: "library" });
+    return {};
+  },
+  set_document_info: (_api, p) => {
+    document.documentElement.classList.toggle("mac-fullscreen", !!p.fullscreen);
+    window.dispatchEvent(new CustomEvent("document-info", { detail: p }));
     return {};
   },
   set_agent_status: (_api, p) => {

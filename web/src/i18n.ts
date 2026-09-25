@@ -38,6 +38,9 @@ const zh = {
   saveAs: "另存新檔…",
   welcome: "開始畫圖吧！畫完記得按 ⌘S 存檔。",
   agent: "AI Agent 已連線",
+  library: "資料庫",
+  export: "匯出",
+  edited: "已編輯",
 };
 const en: typeof zh = {
   newFile: "New File…",
@@ -46,6 +49,9 @@ const en: typeof zh = {
   saveAs: "Save As…",
   welcome: "Start drawing! Press ⌘S to save it to your file.",
   agent: "AI agent connected",
+  library: "Library",
+  export: "Export",
+  edited: "Edited",
 };
 
 export function uiStrings(langCode: string) {

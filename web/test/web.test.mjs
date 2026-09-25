@@ -174,6 +174,23 @@ test("bridge operations", async (t) => {
     assert.equal(await h.page.evaluate(() => getComputedStyle(document.querySelector(".ToolIcon__keybinding")).display), "none");
   });
 
+  await t.test("title bar row: file name, Library button, clickable areas", async () => {
+    ok(await h.call("set_document_info", { name: "flow", folder: "~/Desktop" }));
+    await waitFor(() => h.page.evaluate(() => document.querySelector(".mac-title .name")?.textContent === "flow"), 3000, "title");
+    const top = await h.page.evaluate(() => document.querySelector(".App-toolbar").getBoundingClientRect().top);
+    assert.equal(top, 4, "toolbar moved up into the title bar row");
+    const holes = h.messages.filter((m) => m.type === "titlebarHoles").at(-1).rects;
+    assert.ok(holes.some(([x, y, w, hgt]) => y === 4 && hgt === 44 && w > 300), "toolbar reported as clickable");
+    assert.ok(holes.every(([, y]) => y < 52));
+    await h.page.evaluate(() => document.querySelector(".mac-top-actions .mac-library").click());
+    await waitFor(() => h.page.evaluate(() => (document.querySelector(".default-sidebar")?.innerText ?? "").includes("尚未加入")), 3000, "library content");
+    await h.page.evaluate(() => document.querySelector(".mac-top-actions .mac-library").click());
+    await waitFor(() => h.page.evaluate(() => !document.querySelector(".default-sidebar")), 3000, "library closed");
+    ok(await h.call("set_document_info", { fullscreen: true }));
+    assert.equal(await h.page.evaluate(() => document.documentElement.classList.contains("mac-fullscreen")), true);
+    ok(await h.call("set_document_info", { name: "flow", folder: "~/Desktop", fullscreen: false }));
+  });
+
   await t.test("thumbnail export respects max_size", async () => {
     const png = ok(await h.call("export_image", { format: "png", max_size: 200 }));
     assert.ok(Math.max(png.width, png.height) <= 200, `${png.width}x${png.height}`);

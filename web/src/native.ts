@@ -11,7 +11,11 @@ export type NativeMessage =
   | { type: "library"; items: string }
   /** The canvas colour as displayed, so the window's title bar can match it. */
   | { type: "appearance"; theme: string; background: string }
-  | { type: "menu"; action: "new" | "open" | "save" | "saveAs" };
+  | { type: "menu"; action: "new" | "open" | "save" | "saveAs" }
+  /** Places in the title bar row that are buttons (everything else drags the window). */
+  | { type: "titlebarHoles"; rects: number[][] }
+  /** Show the Export menu under this point. */
+  | { type: "exportMenu"; x: number; y: number };
 
 export type Session = {
   /** Parsed .excalidraw JSON of the last autosave, or null. */

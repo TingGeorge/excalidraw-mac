@@ -1,13 +1,13 @@
 #if os(macOS)
+import AppKit
 import BridgeCore
-import Foundation
 
 /// Listens on the Unix socket for the MCP server (excalidraw-mcp) and passes its requests to
 /// the page. Only canvas operations are allowed: agents can't open, save or export files.
 @MainActor
 final class AppBridge {
     /// Methods that work even when no drawing is open.
-    static let anytime: Set<String> = ["ping", "diagnostics", "status"]
+    static let anytime: Set<String> = ["ping", "diagnostics", "status", "window_info"]
     /// Page methods an agent may call.
     static let forwarded: Set<String> = [
         "ping", "diagnostics", "status", "get_scene", "add_elements", "add_mermaid", "update_elements",
@@ -62,6 +62,19 @@ final class AppBridge {
         }
 
         switch method {
+        case "window_info":
+            // Screen position of the drawing window (top-left origin), for UI tests.
+            let frame = canvas.window.frame
+            let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+            respond(
+                .success([
+                    "x": .double(frame.minX), "y": .double(screenHeight - frame.maxY),
+                    "width": .double(frame.width), "height": .double(frame.height),
+                    "visible": .bool(canvas.window.isVisible),
+                    // Only one of the drawing window and the start screen should ever show.
+                    "visibleWindows": .int(NSApp.windows.filter { $0.isVisible && !($0 is NSPanel) }.count),
+                ]))
+
         case "get_scene":
             canvas.call("get_scene", params) { result in
                 respond(
