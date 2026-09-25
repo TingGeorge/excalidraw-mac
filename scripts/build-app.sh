@@ -1,0 +1,94 @@
+#!/bin/bash
+# Build Excalidraw.app — universal (Apple Silicon + Intel), fully offline, with the
+# MCP server inside (Contents/MacOS/excalidraw-mcp).
+# Needs Node 20+ and Xcode (or the Command Line Tools with Swift 5.9+).
+# Usage: scripts/build-app.sh [version]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+VERSION="${1:-0.1.0}"
+APP=build/Excalidraw.app
+
+echo "== 1/4 Web page (Excalidraw + fonts)"
+(cd web && npm ci --no-audit --no-fund && npm run build)
+
+echo "== 2/4 Swift (app + MCP server, universal)"
+SWIFT_FLAGS=(-c release --arch arm64 --arch x86_64)
+(cd mac && swift build "${SWIFT_FLAGS[@]}")
+BIN="$(cd mac && swift build "${SWIFT_FLAGS[@]}" --show-bin-path)"
+
+echo "== 3/4 Bundle"
+rm -rf build
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$BIN/Excalidraw" "$BIN/excalidraw-mcp" "$APP/Contents/MacOS/"
+cp -R web/dist "$APP/Contents/Resources/web"
+
+ICONSET=build/AppIcon.iconset
+mkdir -p "$ICONSET"
+for size in 16 32 128 256 512; do
+  sips -z $size $size mac/Resources/AppIcon-1024.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  double=$((size * 2))
+  sips -z $double $double mac/Resources/AppIcon-1024.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+rm -rf "$ICONSET"
+
+cat > "$APP/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Excalidraw</string>
+  <key>CFBundleDisplayName</key><string>Excalidraw</string>
+  <key>CFBundleIdentifier</key><string>io.github.tinggeorge.excalidraw</string>
+  <key>CFBundleExecutable</key><string>Excalidraw</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleLocalizations</key>
+  <array><string>en</string><string>zh-Hant</string><string>zh-Hans</string><string>zh-HK</string><string>ja</string></array>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.graphics-design</string>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+  <key>NSHumanReadableCopyright</key><string>Excalidraw is MIT licensed (github.com/excalidraw/excalidraw). Unofficial Mac build.</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Excalidraw Drawing</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Default</string>
+      <key>LSItemContentTypes</key><array><string>io.github.tinggeorge.excalidraw.scene</string></array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>io.github.tinggeorge.excalidraw.scene</string>
+      <key>UTTypeDescription</key><string>Excalidraw Drawing</string>
+      <key>UTTypeConformsTo</key><array><string>public.json</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key><array><string>excalidraw</string></array>
+        <key>public.mime-type</key><array><string>application/vnd.excalidraw+json</string></array>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>
+PLIST
+plutil -lint "$APP/Contents/Info.plist"
+
+echo "== 4/4 Sign (ad-hoc) and zip"
+# Ad-hoc signature: required to run on Apple Silicon. Not notarized, so the
+# first launch of a downloaded copy needs right-click → Open (see README).
+codesign --force --deep --sign - "$APP"
+codesign --verify --deep --strict "$APP"
+(cd build && ditto -c -k --keepParent Excalidraw.app Excalidraw-macOS.zip)
+
+lipo -info "$APP/Contents/MacOS/Excalidraw" "$APP/Contents/MacOS/excalidraw-mcp"
+du -sh "$APP" build/Excalidraw-macOS.zip
+echo "Built $APP and build/Excalidraw-macOS.zip (version $VERSION)"

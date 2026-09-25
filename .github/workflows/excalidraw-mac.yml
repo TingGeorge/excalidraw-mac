@@ -1,0 +1,105 @@
+name: excalidraw-mac (macOS)
+
+on:
+  push:
+    paths:
+      - "excalidraw-mac/**"
+      - ".github/workflows/excalidraw-mac.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write # publish the downloadable build as a GitHub release
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: excalidraw-mac
+    env:
+      APP: ${{ github.workspace }}/excalidraw-mac/build/Excalidraw.app
+      EXCALIDRAW_MAC_HOME: /tmp/exm-ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: excalidraw-mac/web/package-lock.json
+
+      - name: Build universal Excalidraw.app
+        run: ./scripts/build-app.sh 0.1.0
+
+      - name: Page tests in headless Chromium (bridge operations, offline, fonts)
+        working-directory: excalidraw-mac/web
+        run: |
+          npx playwright-core install chromium
+          npm test
+
+      - name: MCP end to end against the real app (the MCP server starts the app itself)
+        working-directory: excalidraw-mac/web
+        env:
+          MCP_BIN: ${{ env.APP }}/Contents/MacOS/excalidraw-mcp
+          EXCALIDRAW_APP_PATH: ${{ env.APP }}
+          REAL_APP: "1"
+        run: node --test test/mcp.test.mjs
+
+      - name: WebKit diagnostics, screenshot + OCR of the running app
+        working-directory: excalidraw-mac/web
+        run: |
+          set -euo pipefail
+          node test/bridge-call.mjs "$EXCALIDRAW_MAC_HOME/bridge.sock" diagnostics | tee "$RUNNER_TEMP/diagnostics.json"
+          grep -q '"ok": true' "$RUNNER_TEMP/diagnostics.json"
+          grep -q '"Excalifont"' "$RUNNER_TEMP/diagnostics.json" || { echo "FAIL: fonts did not load from the app bundle"; exit 1; }
+
+          cat > "$RUNNER_TEMP/ocr.swift" <<'SWIFT'
+          import AppKit
+          import Vision
+          let url = URL(fileURLWithPath: CommandLine.arguments[1])
+          guard let img = NSImage(contentsOf: url),
+                let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { exit(1) }
+          let req = VNRecognizeTextRequest()
+          req.recognitionLevel = .accurate
+          req.usesLanguageCorrection = false
+          try VNImageRequestHandler(cgImage: cg).perform([req])
+          for o in req.results ?? [] { if let t = o.topCandidates(1).first { print(t.string) } }
+          SWIFT
+          node test/bridge-call.mjs "$EXCALIDRAW_MAC_HOME/bridge.sock" zoom_to_fit > /dev/null
+          sleep 2
+          screencapture -x "$RUNNER_TEMP/screen.png"
+          echo "OCR of the screen:"; swift "$RUNNER_TEMP/ocr.swift" "$RUNNER_TEMP/screen.png" | tee "$RUNNER_TEMP/ocr.txt"
+          grep -qi "postgres" "$RUNNER_TEMP/ocr.txt" || { echo "FAIL: the drawing is not visible in the app window"; exit 1; }
+          echo "PASS drawing visible in the app window"
+
+          pkill -TERM -x Excalidraw
+          for i in $(seq 1 50); do pgrep -x Excalidraw >/dev/null || break; sleep 0.2; done
+          if pgrep -x Excalidraw >/dev/null; then echo "FAIL: app did not quit on SIGTERM"; exit 1; fi
+          echo "app quit"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Excalidraw-macOS
+          path: excalidraw-mac/build/Excalidraw-macOS.zip
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: excalidraw-screenshots
+          path: |
+            ${{ runner.temp }}/*.png
+            ${{ runner.temp }}/*.json
+            ${{ runner.temp }}/ocr.txt
+          if-no-files-found: ignore
+
+      - name: Publish download (GitHub release "excalidraw-mac-latest")
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete excalidraw-mac-latest --cleanup-tag --yes || true
+          gh release create excalidraw-mac-latest build/Excalidraw-macOS.zip \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Excalidraw for Mac — latest build" \
+            --notes "Universal (Apple Silicon + Intel), offline Excalidraw with a built-in MCP server. Commit $GITHUB_SHA. See excalidraw-mac/README.md."

@@ -1,0 +1,642 @@
+// window.excalidrawBridge: the operations the Mac app (and through it the MCP
+// server) can run on the canvas. Every call takes and returns JSON strings:
+//   handle("add_elements", '{"elements":[...]}') -> '{"ok":true,"result":{...}}'
+//                                                 or '{"ok":false,"error":"..."}'
+// Edits made here go through Excalidraw's history, so the user can ⌘Z them.
+
+import {
+  CaptureUpdateAction,
+  convertToExcalidrawElements,
+  exportToBlob,
+  exportToSvg,
+  getCommonBounds,
+  getSceneVersion,
+  loadFromBlob,
+  newElementWith,
+  restoreElements,
+  serializeAsJSON,
+} from "@excalidraw/excalidraw";
+import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import { postNative } from "./native";
+
+type Api = ExcalidrawImperativeAPI;
+// Elements are handled structurally here; Excalidraw validates them on updateScene.
+type El = any;
+type Params = Record<string, any>;
+
+// ---------------------------------------------------------------------------
+// Document state (saved vs. dirty), shared with App.tsx
+
+export const doc = {
+  /** Scene version at the last open/save; null until the first onChange. */
+  savedVersion: null as number | null,
+  dirty: false,
+};
+
+export function setDirty(value: boolean) {
+  if (doc.dirty !== value) {
+    doc.dirty = value;
+    postNative({ type: "dirty", value });
+  }
+}
+
+function markSaved(api: Api) {
+  doc.savedVersion = getSceneVersion(api.getSceneElementsIncludingDeleted());
+  setDirty(false);
+}
+
+// ---------------------------------------------------------------------------
+// Autosave (the app keeps the canvas across launches, like excalidraw.com)
+
+let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
+let lastAutosaveKey = "";
+
+export function autosaveSnapshot(api: Api) {
+  const appState = api.getAppState();
+  return {
+    scene: serializeAsJSON(api.getSceneElements(), appState, api.getFiles(), "local"),
+    theme: appState.theme,
+  };
+}
+
+function autosaveKey(api: Api) {
+  const s = api.getAppState();
+  return [
+    getSceneVersion(api.getSceneElementsIncludingDeleted()),
+    Object.keys(api.getFiles()).length,
+    s.theme,
+    s.viewBackgroundColor,
+    s.gridModeEnabled,
+  ].join("|");
+}
+
+export function scheduleAutosave(api: Api) {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => flushAutosave(api), 700);
+}
+
+export function flushAutosave(api: Api) {
+  clearTimeout(autosaveTimer);
+  const key = autosaveKey(api);
+  if (key === lastAutosaveKey) return;
+  lastAutosaveKey = key;
+  postNative({ type: "autosave", ...autosaveSnapshot(api) });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+
+const r1 = (n: number) => Math.round(n * 10) / 10;
+const BINDABLE = new Set(["rectangle", "ellipse", "diamond", "text", "image", "frame", "magicframe", "embeddable", "iframe"]);
+const ARROW_GAP = 6;
+
+function randomId() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let id = "";
+  for (let i = 0; i < 20; i++) id += chars[Math.floor(Math.random() * chars.length)];
+  return id;
+}
+
+function commit(api: Api, elements: El[]) {
+  api.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+}
+
+function liveElements(api: Api): El[] {
+  return api.getSceneElements() as El[];
+}
+
+function boundTextOf(el: El, byId: Map<string, El>): El | undefined {
+  const ref = el.boundElements?.find((b: El) => b.type === "text");
+  const t = ref && byId.get(ref.id);
+  return t && !t.isDeleted ? t : undefined;
+}
+
+function center(e: El): [number, number] {
+  return [e.x + e.width / 2, e.y + e.height / 2];
+}
+
+/** Point just outside `e`'s outline on the line from its centre towards (tx, ty). */
+function edgePoint(e: El, tx: number, ty: number, gap: number): [number, number] {
+  const [cx, cy] = center(e);
+  const dx = tx - cx;
+  const dy = ty - cy;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const hw = Math.max(e.width / 2, 1);
+  const hh = Math.max(e.height / 2, 1);
+  let t: number;
+  if (e.type === "ellipse") t = 1 / Math.sqrt((ux / hw) ** 2 + (uy / hh) ** 2);
+  else if (e.type === "diamond") t = 1 / (Math.abs(ux) / hw + Math.abs(uy) / hh);
+  else t = Math.min(ux ? hw / Math.abs(ux) : Infinity, uy ? hh / Math.abs(uy) : Infinity);
+  return [cx + ux * (t + gap), cy + uy * (t + gap)];
+}
+
+/** Straight arrow geometry from the outline of `a` to the outline of `b`. */
+function route(a: El, b: El) {
+  const [ax, ay] = center(a);
+  const [bx, by] = center(b);
+  const s = edgePoint(a, bx, by, ARROW_GAP);
+  const e = edgePoint(b, ax, ay, ARROW_GAP);
+  const dx = e[0] - s[0];
+  const dy = e[1] - s[1];
+  return { x: s[0], y: s[1], points: [[0, 0], [dx, dy]], width: Math.abs(dx), height: Math.abs(dy) };
+}
+
+function sizeFromPoints(points: number[][]) {
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
+  return { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+}
+
+/** Where a label sits on an arrow: its middle point / middle of its middle segment. */
+function linearMidpoint(a: El): [number, number] {
+  const p = a.points as number[][];
+  if (p.length % 2 === 1) {
+    const m = p[(p.length - 1) / 2];
+    return [a.x + m[0], a.y + m[1]];
+  }
+  const m1 = p[p.length / 2 - 1];
+  const m2 = p[p.length / 2];
+  return [a.x + (m1[0] + m2[0]) / 2, a.y + (m1[1] + m2[1]) / 2];
+}
+
+/** Re-centre a label inside its (possibly moved/resized) container; grows shapes that became too small. */
+function layoutBoundText(text: El, container: El): { text: El; container: El } {
+  if (container.type === "arrow" || container.type === "line") {
+    const [mx, my] = linearMidpoint(container);
+    return { text: { ...text, x: mx - text.width / 2, y: my - text.height / 2 }, container };
+  }
+  const factor = container.type === "ellipse" ? Math.SQRT2 : container.type === "diamond" ? 2 : 1;
+  const needed = text.height * factor + 10;
+  if (container.height < needed) container = { ...container, height: needed };
+  const [cx, cy] = center(container);
+  return { text: { ...text, x: cx - text.width / 2, y: cy - text.height / 2 }, container };
+}
+
+function summarize(e: El, byId: Map<string, El>) {
+  const s: Params = {
+    id: e.id,
+    type: e.type,
+    x: r1(e.x),
+    y: r1(e.y),
+    width: r1(e.width),
+    height: r1(e.height),
+  };
+  if (e.angle) s.angle = r1(e.angle);
+  if (e.type === "text") {
+    s.text = e.originalText ?? e.text;
+    s.fontSize = e.fontSize;
+  }
+  const label = boundTextOf(e, byId);
+  if (label) s.label = label.originalText ?? label.text;
+  s.strokeColor = e.strokeColor;
+  if (e.backgroundColor && e.backgroundColor !== "transparent") s.backgroundColor = e.backgroundColor;
+  if (e.type === "arrow" || e.type === "line") {
+    s.points = e.points.map((p: number[]) => [r1(p[0]), r1(p[1])]);
+    if (e.startBinding) s.start = e.startBinding.elementId;
+    if (e.endBinding) s.end = e.endBinding.elementId;
+    if (e.type === "arrow") {
+      s.startArrowhead = e.startArrowhead;
+      s.endArrowhead = e.endArrowhead;
+    }
+  }
+  const arrows = e.boundElements?.filter((b: El) => b.type === "arrow").map((b: El) => b.id);
+  if (arrows?.length) s.arrowIds = arrows;
+  if (e.groupIds?.length) s.groupIds = e.groupIds;
+  if (e.frameId) s.frameId = e.frameId;
+  if (e.type === "frame" || e.type === "magicframe") s.name = e.name;
+  if (e.type === "image") s.fileId = e.fileId;
+  if (e.link) s.link = e.link;
+  if (e.locked) s.locked = true;
+  return s;
+}
+
+function sceneBounds(elements: El[]) {
+  if (!elements.length) return null;
+  const [minX, minY, maxX, maxY] = getCommonBounds(elements);
+  return { x: r1(minX), y: r1(minY), width: r1(maxX - minX), height: r1(maxY - minY) };
+}
+
+function createdSummary(elements: El[]) {
+  const byId = new Map(elements.map((e) => [e.id, e]));
+  return elements
+    .filter((e) => !(e.type === "text" && e.containerId && byId.has(e.containerId)))
+    .map((e) => summarize(e, byId));
+}
+
+function zoomToFit(api: Api, target?: El[]) {
+  api.scrollToContent(target && target.length ? target : undefined, { fitToContent: true, animate: false });
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+// ---------------------------------------------------------------------------
+// Operations
+
+function getScene(api: Api, p: Params) {
+  const live = liveElements(api);
+  const byId = new Map(live.map((e) => [e.id, e]));
+  const appState = api.getAppState();
+  const elements = live
+    .filter((e) => !(e.type === "text" && e.containerId && byId.has(e.containerId)))
+    .map((e) => summarize(e, byId));
+  return {
+    elementCount: elements.length,
+    bounds: sceneBounds(live),
+    selectedElementIds: Object.keys(appState.selectedElementIds).filter((k) => appState.selectedElementIds[k]),
+    viewBackgroundColor: appState.viewBackgroundColor,
+    theme: appState.theme,
+    ...(p.include_elements === false ? {} : { elements }),
+  };
+}
+
+function isReference(end: any) {
+  return end && typeof end === "object" && typeof end.id === "string" && end.type === undefined;
+}
+
+function addElements(api: Api, p: Params) {
+  const skeletons: El[] = p.elements;
+  if (!Array.isArray(skeletons) || skeletons.length === 0) {
+    throw new Error("`elements` must be a non-empty array");
+  }
+  const sceneAll = api.getSceneElementsIncludingDeleted() as El[];
+  const live = new Map(liveElements(api).map((e) => [e.id, e]));
+  const usedIds = new Set(sceneAll.map((e) => e.id));
+  for (const s of skeletons) {
+    if (!s || typeof s !== "object" || typeof s.type !== "string") {
+      throw new Error("every element needs a string `type` (rectangle, ellipse, diamond, text, arrow, line, frame)");
+    }
+    if (s.id !== undefined) {
+      if (typeof s.id !== "string" || !s.id) throw new Error("`id` must be a non-empty string");
+      if (usedIds.has(s.id)) throw new Error(`id "${s.id}" is already used on the canvas or in this batch`);
+      usedIds.add(s.id);
+    }
+    if (s.type === "text" && typeof s.text !== "string") throw new Error("text elements need `text`");
+  }
+
+  // Arrows that point at elements by id are laid out after the shapes exist,
+  // so they can be routed edge-to-edge (and can target existing elements).
+  const deferred = skeletons.filter((s) => s.type === "arrow" && (isReference(s.start) || isReference(s.end)));
+  const first = skeletons.filter((s) => !deferred.includes(s));
+  const firstEls: El[] = first.length ? convertToExcalidrawElements(first, { regenerateIds: false }) : [];
+  const firstById = new Map(firstEls.map((e) => [e.id, e]));
+  const resolve = (id: string) => firstById.get(id) ?? live.get(id);
+
+  const pending: { id: string; startId?: string; endId?: string }[] = [];
+  const second: El[] = [];
+  for (const s of deferred) {
+    const startId = isReference(s.start) ? s.start.id : undefined;
+    const endId = isReference(s.end) ? s.end.id : undefined;
+    if ((s.start && !startId) || (s.end && !endId)) {
+      throw new Error("an arrow can't mix a reference ({id}) with an inline shape ({type}); add the shape first and reference it by id");
+    }
+    for (const id of [startId, endId]) {
+      if (!id) continue;
+      const target = resolve(id);
+      if (!target) throw new Error(`arrow ${s.id ? `"${s.id}" ` : ""}references unknown element "${id}"`);
+      if (!BINDABLE.has(target.type)) throw new Error(`arrows can't attach to a ${target.type} ("${id}")`);
+    }
+    const { start, end, ...rest } = s;
+    const id = s.id ?? randomId();
+    let geometry: Params = {};
+    const explicit = typeof s.x === "number" && typeof s.y === "number" && Array.isArray(s.points);
+    if (!explicit) {
+      if (!startId || !endId) throw new Error("an arrow bound at only one end needs explicit x, y and points");
+      if (startId === endId) throw new Error("an arrow from an element to itself needs explicit x, y and points");
+      geometry = route(resolve(startId), resolve(endId));
+    }
+    second.push({ ...rest, ...geometry, id, type: "arrow" });
+    pending.push({ id, startId, endId });
+  }
+  const secondEls: El[] = second.length ? convertToExcalidrawElements(second, { regenerateIds: false }) : [];
+
+  const created = new Map<string, El>([...firstEls, ...secondEls].map((e) => [e.id, e]));
+  const extraBound = new Map<string, El[]>();
+  for (const b of pending) {
+    let arrow = created.get(b.id);
+    for (const [end, targetId] of [["startBinding", b.startId], ["endBinding", b.endId]] as const) {
+      if (!targetId) continue;
+      arrow = { ...arrow, [end]: { elementId: targetId, focus: 0, gap: ARROW_GAP } };
+      const ref = { id: b.id, type: "arrow" };
+      const target = created.get(targetId);
+      if (target) created.set(targetId, { ...target, boundElements: [...(target.boundElements ?? []), ref] });
+      else extraBound.set(targetId, [...(extraBound.get(targetId) ?? []), ref]);
+    }
+    created.set(b.id, arrow);
+  }
+
+  const existing = sceneAll.map((e) =>
+    extraBound.has(e.id) ? newElementWith(e, { boundElements: [...(e.boundElements ?? []), ...extraBound.get(e.id)!] }) : e,
+  );
+  const newEls = [...created.values()];
+  commit(api, [...existing, ...newEls]);
+  if (p.zoom_to_fit !== false) zoomToFit(api);
+  return { created: createdSummary(newEls) };
+}
+
+async function addMermaid(api: Api, p: Params) {
+  if (typeof p.definition !== "string" || !p.definition.trim()) throw new Error("`definition` is required");
+  const { parseMermaidToExcalidraw } = await import("@excalidraw/mermaid-to-excalidraw");
+  const fontSize = typeof p.font_size === "number" ? p.font_size : 16;
+  let parsed;
+  try {
+    parsed = await parseMermaidToExcalidraw(p.definition, { themeVariables: { fontSize: `${fontSize}px` } });
+  } catch (e: any) {
+    throw new Error(`Mermaid parse error: ${e?.message ?? e}`);
+  }
+  let els: El[] = convertToExcalidrawElements(parsed.elements as any, { regenerateIds: true });
+  const live = liveElements(api);
+  if (live.length && els.length) {
+    // Put the new diagram to the right of whatever is already on the canvas.
+    const [, minY, maxX] = getCommonBounds(live);
+    const [nMinX, nMinY] = getCommonBounds(els);
+    const dx = maxX + 120 - nMinX;
+    const dy = minY - nMinY;
+    els = els.map((e) => ({ ...e, x: e.x + dx, y: e.y + dy }));
+  }
+  if (parsed.files) api.addFiles(Object.values(parsed.files) as any);
+  commit(api, [...api.getSceneElementsIncludingDeleted(), ...els]);
+  if (p.zoom_to_fit !== false) zoomToFit(api);
+  return { created: createdSummary(els), bounds: sceneBounds(els) };
+}
+
+const UPDATABLE = [
+  "x", "y", "width", "height", "angle", "strokeColor", "backgroundColor", "fillStyle", "strokeWidth",
+  "strokeStyle", "roughness", "opacity", "roundness", "fontSize", "fontFamily", "textAlign", "verticalAlign",
+  "link", "locked", "startArrowhead", "endArrowhead", "points", "name", "groupIds",
+];
+
+function updateElements(api: Api, p: Params) {
+  const updates: Params[] = p.updates;
+  if (!Array.isArray(updates) || updates.length === 0) throw new Error("`updates` must be a non-empty array");
+  const all = api.getSceneElementsIncludingDeleted() as El[];
+  const cur = new Map<string, El>(all.map((e) => [e.id, e]));
+  const touched = new Set<string>();
+  const put = (id: string, patch: Params) => {
+    cur.set(id, { ...cur.get(id), ...patch });
+    touched.add(id);
+  };
+  const moved = new Map<string, [number, number]>();
+  const explicitlyPlaced = new Set<string>();
+  const relayout = new Set<string>(); // containers whose label must be re-centred
+  const refreshText = new Set<string>(); // text elements whose size must be recomputed
+
+  for (const u of updates) {
+    const el = u && typeof u.id === "string" ? cur.get(u.id) : undefined;
+    if (!el || el.isDeleted) throw new Error(`no element with id "${u?.id}"`);
+    const patch: Params = {};
+    for (const k of UPDATABLE) if (k in u) patch[k] = u[k];
+    const isContainer = el.type !== "text" && !!boundTextOf(el, cur);
+    if (isContainer && "fontSize" in patch) {
+      const t = boundTextOf(el, cur)!;
+      put(t.id, { fontSize: patch.fontSize });
+      refreshText.add(t.id);
+      relayout.add(el.id);
+      delete patch.fontSize;
+    }
+    if ("points" in patch) Object.assign(patch, sizeFromPoints(patch.points));
+    const dx = "x" in patch ? patch.x - el.x : 0;
+    const dy = "y" in patch ? patch.y - el.y : 0;
+    put(el.id, patch);
+    if ("x" in patch || "y" in patch) explicitlyPlaced.add(el.id);
+    if (dx || dy) moved.set(el.id, [dx, dy]);
+    if ("width" in patch || "height" in patch || "points" in patch) relayout.add(el.id);
+
+    const newText = "text" in u ? u.text : "label" in u ? u.label : undefined;
+    if (newText !== undefined) {
+      if (typeof newText !== "string") throw new Error("`text` must be a string");
+      const target = el.type === "text" ? el : boundTextOf(el, cur);
+      if (!target) throw new Error(`element "${el.id}" has no text or label to change`);
+      put(target.id, { text: newText, originalText: newText });
+      refreshText.add(target.id);
+      if (target.containerId) relayout.add(target.containerId);
+    }
+    if (el.type === "text" && ("fontSize" in patch || "fontFamily" in patch)) refreshText.add(el.id);
+  }
+
+  // Labels follow their shapes; arrows follow the shapes they are attached to.
+  const arrowShift = new Map<string, { start?: [number, number]; end?: [number, number] }>();
+  for (const [id, [dx, dy]] of moved) {
+    const el = cur.get(id);
+    const label = boundTextOf(el, cur);
+    if (label && !explicitlyPlaced.has(label.id)) relayout.add(id);
+    for (const ref of el.boundElements ?? []) {
+      if (ref.type !== "arrow" || explicitlyPlaced.has(ref.id)) continue;
+      const a = cur.get(ref.id);
+      if (!a || a.isDeleted) continue;
+      const s = arrowShift.get(a.id) ?? {};
+      if (a.startBinding?.elementId === id) s.start = [dx, dy];
+      if (a.endBinding?.elementId === id) s.end = [dx, dy];
+      arrowShift.set(a.id, s);
+    }
+  }
+  for (const [id, s] of arrowShift) {
+    const a = cur.get(id);
+    const startEl = a.startBinding && cur.get(a.startBinding.elementId);
+    const endEl = a.endBinding && cur.get(a.endBinding.elementId);
+    if (a.points.length === 2 && startEl && endEl && startEl.id !== endEl.id) {
+      put(id, route(startEl, endEl));
+    } else {
+      const [sdx, sdy] = s.start ?? [0, 0];
+      const [edx, edy] = s.end ?? [0, 0];
+      const last = a.points.length - 1;
+      const points = a.points.map((pt: number[], i: number) =>
+        i === 0 ? [0, 0] : i === last ? [pt[0] + edx - sdx, pt[1] + edy - sdy] : [pt[0] - sdx, pt[1] - sdy],
+      );
+      put(id, { x: a.x + sdx, y: a.y + sdy, points, ...sizeFromPoints(points) });
+    }
+    if (boundTextOf(a, cur)) relayout.add(id);
+  }
+
+  // Resize changed texts (wrapping labels to their container), then centre labels.
+  if (refreshText.size) {
+    const subset: El[] = [];
+    for (const id of refreshText) {
+      const t = cur.get(id);
+      subset.push(t);
+      if (t.containerId && cur.get(t.containerId)) subset.push(cur.get(t.containerId));
+    }
+    for (const e of restoreElements(subset, null, { refreshDimensions: true }) as El[]) {
+      if (refreshText.has(e.id)) put(e.id, { text: e.text, width: e.width, height: e.height, x: e.x, y: e.y });
+    }
+  }
+  for (const id of relayout) {
+    const container = cur.get(id);
+    const label = container && boundTextOf(container, cur);
+    if (!label) continue;
+    const res = layoutBoundText(label, container);
+    put(label.id, res.text);
+    if (res.container !== container) put(id, { height: res.container.height });
+  }
+
+  const strip = ({ version, versionNonce, updated, ...rest }: El) => rest;
+  const next = all.map((e) => (touched.has(e.id) ? newElementWith(e, strip(cur.get(e.id))) : e));
+  commit(api, next);
+  const byId = new Map(next.map((e) => [e.id, e]));
+  return { updated: updates.map((u) => summarize(byId.get(u.id), byId)) };
+}
+
+function deleteElements(api: Api, p: Params) {
+  const ids: string[] = p.ids;
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error("`ids` must be a non-empty array");
+  const all = api.getSceneElementsIncludingDeleted() as El[];
+  const byId = new Map(all.map((e) => [e.id, e]));
+  const doomed = new Set<string>();
+  for (const id of ids) {
+    const el = byId.get(id);
+    if (!el || el.isDeleted) throw new Error(`no element with id "${id}"`);
+    doomed.add(id);
+    const label = boundTextOf(el, byId);
+    if (label) doomed.add(label.id);
+  }
+  const next = all.map((e) => {
+    if (doomed.has(e.id)) return newElementWith(e, { isDeleted: true });
+    const patch: Params = {};
+    if (e.startBinding && doomed.has(e.startBinding.elementId)) patch.startBinding = null;
+    if (e.endBinding && doomed.has(e.endBinding.elementId)) patch.endBinding = null;
+    if (e.boundElements?.some((b: El) => doomed.has(b.id))) {
+      patch.boundElements = e.boundElements.filter((b: El) => !doomed.has(b.id));
+    }
+    return Object.keys(patch).length ? newElementWith(e, patch) : e;
+  });
+  commit(api, next);
+  return { deleted: [...doomed] };
+}
+
+function clearCanvas(api: Api) {
+  const all = api.getSceneElementsIncludingDeleted() as El[];
+  const count = all.filter((e) => !e.isDeleted).length;
+  commit(api, all.map((e) => (e.isDeleted ? e : newElementWith(e, { isDeleted: true }))));
+  return { deleted: count };
+}
+
+async function exportImage(api: Api, p: Params) {
+  const format = p.format ?? "png";
+  if (format !== "png" && format !== "svg") throw new Error('`format` must be "png" or "svg"');
+  let elements = liveElements(api);
+  if (Array.isArray(p.element_ids) && p.element_ids.length) {
+    const ids = new Set<string>(p.element_ids);
+    elements = elements.filter((e) => ids.has(e.id) || (e.containerId && ids.has(e.containerId)));
+  }
+  if (!elements.length) throw new Error("nothing to export: the canvas (or selection) is empty");
+  const appState = {
+    ...api.getAppState(),
+    exportBackground: p.background ?? true,
+    exportWithDarkMode: p.dark_mode ?? false,
+    exportEmbedScene: false,
+  };
+  const files = api.getFiles();
+  const exportPadding = typeof p.padding === "number" ? p.padding : 20;
+  if (format === "svg") {
+    const svg = await exportToSvg({ elements, appState, files, exportPadding });
+    return {
+      mimeType: "image/svg+xml",
+      text: svg.outerHTML,
+      width: Math.round(Number(svg.getAttribute("width"))),
+      height: Math.round(Number(svg.getAttribute("height"))),
+    };
+  }
+  const wanted = typeof p.scale === "number" && p.scale > 0 ? p.scale : 1;
+  let size = { width: 0, height: 0 };
+  const blob = await exportToBlob({
+    elements,
+    appState,
+    files,
+    exportPadding,
+    mimeType: "image/png",
+    getDimensions: (w: number, h: number) => {
+      // Stay under WebKit's maximum canvas area.
+      const scale = Math.min(wanted, Math.sqrt(16_000_000 / Math.max(w * h, 1)));
+      size = { width: Math.round(w * scale), height: Math.round(h * scale) };
+      return { ...size, scale };
+    },
+  });
+  return { mimeType: "image/png", base64: bytesToBase64(new Uint8Array(await blob.arrayBuffer())), ...size };
+}
+
+async function loadSceneJson(api: Api, p: Params) {
+  if (typeof p.json !== "string") throw new Error("`json` is required");
+  const data = await loadFromBlob(
+    new Blob([p.json], { type: "application/json" }),
+    api.getAppState(),
+    api.getSceneElementsIncludingDeleted(),
+  );
+  api.updateScene({ elements: data.elements, appState: data.appState as any, captureUpdate: CaptureUpdateAction.NEVER });
+  api.addFiles(Object.values(data.files));
+  api.history.clear();
+  zoomToFit(api);
+  if (p.dirty) {
+    doc.savedVersion = -1;
+    setDirty(true);
+  } else markSaved(api);
+  return { elementCount: liveElements(api).length };
+}
+
+function newScene(api: Api) {
+  api.resetScene();
+  api.history.clear();
+  markSaved(api);
+  return {};
+}
+
+function diagnostics(api: Api) {
+  const faces = [...(document.fonts as any)] as FontFace[];
+  return {
+    isSecureContext: window.isSecureContext,
+    userAgent: navigator.userAgent,
+    assetPath: window.EXCALIDRAW_ASSET_PATH,
+    fontsStatus: document.fonts.status,
+    loadedFonts: [...new Set(faces.filter((f) => f.status === "loaded").map((f) => f.family))],
+    dirty: doc.dirty,
+    sceneVersion: getSceneVersion(api.getSceneElementsIncludingDeleted()),
+  };
+}
+
+const ops: Record<string, (api: Api, p: Params) => unknown> = {
+  ping: () => ({ ready: true }),
+  diagnostics,
+  get_scene: getScene,
+  add_elements: addElements,
+  add_mermaid: addMermaid,
+  update_elements: updateElements,
+  delete_elements: deleteElements,
+  clear_canvas: clearCanvas,
+  export_image: exportImage,
+  zoom_to_fit: (api, p) => {
+    const ids = Array.isArray(p.element_ids) ? new Set(p.element_ids) : null;
+    zoomToFit(api, ids ? liveElements(api).filter((e) => ids.has(e.id)) : undefined);
+    return {};
+  },
+  // Used by the Mac app itself:
+  get_scene_json: (api) => ({ json: serializeAsJSON(api.getSceneElements(), api.getAppState(), api.getFiles(), "local") }),
+  get_autosave: (api) => autosaveSnapshot(api),
+  load_scene_json: loadSceneJson,
+  new_scene: newScene,
+  mark_saved: (api) => {
+    markSaved(api);
+    return {};
+  },
+  status: (api) => ({ dirty: doc.dirty, elementCount: liveElements(api).length }),
+};
+
+export function installBridge(api: Api) {
+  window.excalidrawBridge = {
+    async handle(method: string, params: string) {
+      try {
+        const op = ops[method];
+        if (!op) throw new Error(`unknown method "${method}"`);
+        const result = await op(api, params ? JSON.parse(params) : {});
+        return JSON.stringify({ ok: true, result: result ?? {} });
+      } catch (e: any) {
+        return JSON.stringify({ ok: false, error: String(e?.message ?? e) });
+      }
+    },
+  };
+}
