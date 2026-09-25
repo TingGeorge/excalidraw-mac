@@ -763,7 +763,7 @@ final class CanvasContainerView: NSView, NSMenuItemValidation {
     @objc func cut(_ sender: Any?) { controller?.edit("cut", fallback: #selector(NSText.cut(_:)), sender: sender) }
     @objc func copy(_ sender: Any?) { controller?.edit("copy", fallback: #selector(NSText.copy(_:)), sender: sender) }
     @objc func paste(_ sender: Any?) { controller?.edit("paste", fallback: #selector(NSText.paste(_:)), sender: sender) }
-    @objc func selectAll(_ sender: Any?) {
+    @objc override func selectAll(_ sender: Any?) {
         controller?.edit("selectAll", fallback: #selector(NSText.selectAll(_:)), sender: sender)
     }
 
