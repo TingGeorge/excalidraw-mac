@@ -182,7 +182,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func openHelp(_ sender: Any?) {
-        NSWorkspace.shared.open(URL(string: "https://github.com/TingGeorge/ideas/tree/main/excalidraw-mac#readme")!)
+        let readme = L10n.isChinese ? "blob/main/README.zh-TW.md" : "#readme"
+        NSWorkspace.shared.open(URL(string: "https://github.com/TingGeorge/excalidraw-mac/\(readme)")!)
+    }
+
+    /// Help > Acknowledgements: the licenses of everything the app includes (bundled with it).
+    @objc func showAcknowledgements(_ sender: Any?) {
+        guard let url = Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "txt") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// Shows how to connect Claude Code (or any MCP client) to this app.
@@ -310,6 +317,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let help = submenu(t("Help", "輔助說明"), [
             item(t("Excalidraw for Mac Help", "Excalidraw for Mac 說明"), #selector(openHelp(_:)), target: self),
             item(t("Connect an AI Agent (MCP)…", "連接 AI Agent（MCP）…"), #selector(showAgentSetup(_:)), target: self),
+            .separator(),
+            item(t("Acknowledgements", "致謝與授權"), #selector(showAcknowledgements(_:)), target: self),
         ])
         NSApp.helpMenu = help
         return main

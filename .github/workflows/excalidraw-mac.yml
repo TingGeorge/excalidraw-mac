@@ -1,10 +1,8 @@
-name: excalidraw-mac (macOS)
+name: Build and test (macOS)
 
 on:
   push:
-    paths:
-      - "excalidraw-mac/**"
-      - ".github/workflows/excalidraw-mac.yml"
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -20,11 +18,8 @@ jobs:
         os: [macos-15, macos-26]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
-    defaults:
-      run:
-        working-directory: excalidraw-mac
     env:
-      APP: ${{ github.workspace }}/excalidraw-mac/build/Excalidraw.app
+      APP: ${{ github.workspace }}/build/Excalidraw.app
       EXCALIDRAW_MAC_HOME: /tmp/exm-ci
     steps:
       - uses: actions/checkout@v4
@@ -33,19 +28,21 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: excalidraw-mac/web/package-lock.json
+          cache-dependency-path: web/package-lock.json
 
       - name: Build universal Excalidraw.app
         run: ./scripts/build-app.sh 0.1.0
 
       - name: Page tests in headless Chromium (bridge operations, offline, fonts)
-        working-directory: excalidraw-mac/web
+        working-directory: web
         run: |
           npx playwright-core install chromium
           npm test
+          # the committed THIRD_PARTY_NOTICES.md matches what this build bundles
+          git diff --exit-code -- ../THIRD_PARTY_NOTICES.md || { echo "THIRD_PARTY_NOTICES.md is out of date: run npm run build in web/ and commit it"; exit 1; }
 
       - name: MCP end to end against the real app (the MCP server starts the app itself)
-        working-directory: excalidraw-mac/web
+        working-directory: web
         env:
           MCP_BIN: ${{ env.APP }}/Contents/MacOS/excalidraw-mcp
           EXCALIDRAW_APP_PATH: ${{ env.APP }}
@@ -53,13 +50,13 @@ jobs:
         run: node --test test/mcp.test.mjs
 
       - name: Real clicks on the drawing window (tools and buttons in the title bar row, dragging)
-        working-directory: excalidraw-mac/web
+        working-directory: web
         env:
           EXCALIDRAW_APP_PATH: ${{ env.APP }}
         run: node --test test/ui-mac.test.mjs
 
       - name: WebKit diagnostics, screenshot + OCR of the running app
-        working-directory: excalidraw-mac/web
+        working-directory: web
         run: |
           set -euo pipefail
           node test/bridge-call.mjs "$EXCALIDRAW_MAC_HOME/bridge.sock" diagnostics | tee "$RUNNER_TEMP/diagnostics.json"
@@ -91,7 +88,7 @@ jobs:
           echo "app quit"
 
       - name: Start screen (light and dark)
-        working-directory: excalidraw-mac/web
+        working-directory: web
         run: |
           set -euo pipefail
           # VoiceOver sees the actions and recent files as buttons, not loose texts and icons.
@@ -142,7 +139,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Excalidraw-macOS-${{ matrix.os }}
-          path: excalidraw-mac/build/Excalidraw-macOS.zip
+          path: build/Excalidraw-macOS.zip
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -154,13 +151,13 @@ jobs:
             ${{ runner.temp }}/ocr.txt
           if-no-files-found: ignore
 
-      - name: Publish download (GitHub release "excalidraw-mac-latest")
-        if: matrix.os == 'macos-15' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      - name: Publish download (GitHub release "latest")
+        if: matrix.os == 'macos-15' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete excalidraw-mac-latest --cleanup-tag --yes || true
-          gh release create excalidraw-mac-latest build/Excalidraw-macOS.zip \
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest build/Excalidraw-macOS.zip \
             --target "$GITHUB_SHA" --prerelease \
             --title "Excalidraw for Mac — latest build" \
-            --notes "Universal (Apple Silicon + Intel), offline Excalidraw with a built-in MCP server. Commit $GITHUB_SHA. See excalidraw-mac/README.md."
+            --notes "Universal (Apple Silicon + Intel), offline Excalidraw with a built-in MCP server. Commit $GITHUB_SHA. See README.md. Unofficial; not affiliated with the Excalidraw team. Licenses: LICENSE and THIRD_PARTY_NOTICES.md."

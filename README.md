@@ -1,70 +1,66 @@
-# Excalidraw for Mac：離線白板 App ＋ 讓 AI Agent 畫圖的 MCP
+# Excalidraw for Mac
 
-把 [Excalidraw](https://github.com/excalidraw/excalidraw) 做成原生 Mac App：
+**English** · [繁體中文](README.zh-TW.md)
 
-- **完全離線**：Excalidraw 本體、手寫字型（含中文的「小賴字體」）、Mermaid 轉換都打包在 App 裡，不連任何網路。
-- **省資源**：用 macOS 內建的 WebKit（跟 Safari 同一個引擎），沒有自帶 Chromium，App 大約 25 MB（下載檔約 17 MB）。
-- **以檔案為主**：先選資料夾建立一個 `.excalidraw` 檔（或開啟既有的），在裡面畫；按 ⌘S 才會存回這個檔案。
-- **內建 MCP 伺服器**：Claude Code 等 AI agent 可以在你開著的檔案裡畫圖、改圖，你在視窗裡即時看到，也可以 ⌘Z 還原 agent 的每一步。存檔永遠由你決定。
+An offline whiteboard app for macOS built around [Excalidraw](https://github.com/excalidraw/excalidraw), with a built-in [MCP](https://modelcontextprotocol.io) server so AI agents such as Claude Code can draw in it.
+
+> **Unofficial.** This is an independent project. It is not made by, endorsed by or affiliated with the Excalidraw team. "Excalidraw" is the name of their project, used here to say what this app is built on.
+
+- **Fully offline.** Excalidraw, its hand-drawn fonts (including a hand-drawn Chinese font) and the Mermaid converter are all inside the app.
+- **Light.** A native Swift app on macOS's own WebKit (the engine Safari uses) — no bundled Chromium. About 25 MB (a 17 MB download).
+- **File first.** Create a `.excalidraw` file in a folder you choose (or open one) and draw in it. Nothing is written to it until you press ⌘S.
+- **Built-in MCP server.** Agents can read, draw and edit in the file you have open while you watch; every step can be undone with ⌘Z. Only you save.
+- **At home on macOS.** Title bar tools, native menus (Edit, View, Settings ⌘,), light / dark / system appearance, keyboard shortcuts shown the Mac way, English and Chinese UI.
 
 ---
 
-## 1. 下載與安裝
+## Install
 
-1. 下載：**<https://github.com/TingGeorge/ideas/releases/tag/excalidraw-mac-latest>** → `Excalidraw-macOS.zip`（Apple Silicon 與 Intel 通用，需要 macOS 13 以上）。
-2. 解壓縮，把 **Excalidraw.app** 拖進「應用程式」資料夾。
-3. **第一次打開**：這個 App 沒有經過 Apple 公證，直接雙擊會被擋。任選一種方式放行：
-   - 在「應用程式」裡**按右鍵** Excalidraw → **打開** → 再按 **打開**。
-   - macOS 15 以上：先雙擊一次，再到 **系統設定 → 隱私權與安全性**，往下找到 Excalidraw，按 **強制打開**。
-   - 或在終端機執行：`xattr -dr com.apple.quarantine /Applications/Excalidraw.app`
+1. Download **`Excalidraw-macOS.zip`** from the **[latest release](https://github.com/TingGeorge/excalidraw-mac/releases/tag/latest)** (universal: Apple Silicon and Intel; macOS 13 or later).
+2. Unzip it and drag **Excalidraw.app** into **Applications**.
+3. **First launch:** the app is not notarized by Apple, so macOS blocks a plain double-click. Any one of these lets it open:
+   - Right-click Excalidraw in Applications → **Open** → **Open**.
+   - macOS 15 and later: double-click once, then **System Settings → Privacy & Security** → scroll down to Excalidraw → **Open Anyway**.
+   - Or in Terminal: `xattr -dr com.apple.quarantine /Applications/Excalidraw.app`
 
-> 想自己從原始碼編譯：需要 Node 20+ 和 Xcode，執行 `./scripts/build-app.sh`，產物在 `build/`。
+To build it yourself you need Node 20+ and Xcode: run `./scripts/build-app.sh`; the app and the zip end up in `build/`.
 
-## 2. 日常使用
+## Everyday use
 
-1. **打開 App 會看到開始畫面**：
-   - **新增檔案…**：選一個資料夾、輸入檔名，App 會馬上在那裡建立這個 `.excalidraw` 檔並打開它。
-   - **開啟檔案…**：打開既有的 `.excalidraw` 檔（也可以直接在 Finder 雙擊檔案）。
-   - **最近使用**：點一下就回到之前的檔案。
-2. **畫圖**：你和 agent 都在這個檔案的畫布上編輯。視窗標題是檔名；有沒存的變更時，關閉鈕中間會有一個點。
-3. **存檔**：按 **⌘S**，就會存回一開始選的那個檔案。agent 不能幫你存。
-4. **關閉視窗**回到開始畫面；有沒存的變更時會問你「儲存／不儲存／取消」。結束 App（⌘Q）也一樣。
+1. **The start screen** offers **New File…** (pick a folder and a name; the file is created right away), **Open…**, and your recent files. You can also double-click `.excalidraw` files in Finder.
+2. **Draw.** You and your agent edit the same canvas. The title bar shows the file name; "Edited" means there are unsaved changes.
+3. **Save with ⌘S** — back into the file you chose. Agents can't save.
+4. **Closing the window** returns to the start screen and asks about unsaved changes (so does ⌘Q).
 
-| 動作 | 方式 |
+| To… | Use |
 |---|---|
-| 新增檔案 / 開啟檔案 | ⌘N / ⌘O（開始畫面或「檔案」選單） |
-| 儲存 / 另存新檔 | ⌘S / ⇧⌘S |
-| 匯出圖片 | ⇧⌘E、「檔案 → 匯出圖片…」或右上角的匯出按鈕，都會開同一個匯出視窗（預覽、PNG / SVG / 拷貝、透明背景、深色、只匯出選取範圍）；檔名預設是你的檔名 |
-| 還原、拷貝、貼上 | ⌘Z / ⌘C / ⌘V，或選單列的「編輯」選單（作用在畫布上；在文字框裡打字時作用在文字上） |
-| 縮放、深色模式、素材庫 | 「顯示方式」選單，或 Excalidraw 左上角選單 |
-| 外觀（跟隨系統／淺色／深色） | **Excalidraw → 設定…**（⌘,） |
-| 指令面板 | ⌘/：用打字找所有功能 |
+| New / open a file | ⌘N / ⌘O |
+| Save / save as | ⌘S / ⇧⌘S |
+| Export an image | ⇧⌘E, **File › Export Image…** or the export button (top right): preview, PNG / SVG / copy, background, dark, selection only. Named after your file. |
+| Undo, copy, paste | ⌘Z / ⌘C / ⌘V or the **Edit** menu (the canvas, or the text you're typing) |
+| Zoom, dark mode, library | **View** menu, or Excalidraw's ☰ menu |
+| Appearance (system / light / dark) | **Excalidraw › Settings…** (⌘,) |
+| Find any command | ⌘/ (command palette) |
 
-- **當機保護**：編輯時 App 會在自己的資料夾（不是你的檔案）留一份暫存。如果 App 當掉或被強制結束，下次打開同一個檔案時會把沒存的變更恢復回來（開始畫面也會標示「有未儲存的變更」），再按 ⌘S 存。正常關閉時選「不儲存」，暫存就會刪掉。
-- 介面語言跟著系統語言（繁體中文系統會顯示繁體中文）。
-- 需要網路的只有：瀏覽線上圖庫（libraries.excalidraw.com）、在畫布裡嵌入 YouTube 之類的網頁。圖庫可以先下載 `.excalidrawlib` 檔，再從右上角「資料庫」匯入，匯入後離線也能用。
+- **Crash safety:** while you edit, the app keeps a recovery copy in its own folder (never in your file). If it quits unexpectedly, reopening the file brings the unsaved changes back; press ⌘S to keep them.
+- The interface follows your system language.
+- The network is only used if you choose to: browsing the online libraries (libraries.excalidraw.com) or embedding web pages such as YouTube in a drawing. Downloaded `.excalidrawlib` files can be imported and work offline.
 
-App 自己的資料放在 `~/Library/Application Support/Excalidraw/`（最近使用清單、圖庫、當機暫存）。
+The app's own data (recent files, library, recovery copy) lives in `~/Library/Application Support/Excalidraw/`.
 
-## 3. 讓 AI Agent 使用這個 App（MCP）
+## Let an AI agent use it (MCP)
 
-App 裡內建 MCP 伺服器：`/Applications/Excalidraw.app/Contents/MacOS/excalidraw-mcp`。不用另外安裝 Node 或其他東西。agent 需要時會自動開啟 App；如果還沒有開著的檔案，agent 會收到「請使用者先新增或開啟檔案」的提示，並轉告你。
+The MCP server ships inside the app: `/Applications/Excalidraw.app/Contents/MacOS/excalidraw-mcp`. Nothing else to install. It starts the app when needed; if no file is open, the agent is told to ask you to create or open one.
 
-最簡單的方式：打開 App → 選單 **Excalidraw → 連接 AI Agent（MCP）…**，按按鈕複製設定。
+The quickest way: in the app, **Excalidraw › Connect an AI Agent (MCP)…** and copy the setup.
 
-### Claude Code
-
-在終端機執行一次：
+**Claude Code** — run once in Terminal:
 
 ```bash
 claude mcp add excalidraw --scope user -- /Applications/Excalidraw.app/Contents/MacOS/excalidraw-mcp
 ```
 
-然後在 `claude` 裡用 `/mcp` 應該會看到 `excalidraw` 已連線。
-
-### 其他 MCP 用戶端（Claude Desktop、Cursor、Codex…）
-
-加到它們的 MCP 設定檔：
+**Other MCP clients** (Claude Desktop, Cursor, Codex, …) — add to their MCP settings:
 
 ```json
 {
@@ -74,75 +70,74 @@ claude mcp add excalidraw --scope user -- /Applications/Excalidraw.app/Contents/
 }
 ```
 
-### 可以這樣跟 agent 說
+Then, with a file open in the app, try:
 
-先在 App 裡新增或開啟一個檔案，然後：
+- "Draw this project's architecture in my open Excalidraw file."
+- "Make the boxes I selected green and add an arrow from API to DB."
+- "Read the flowchart on the canvas and add the missing error-handling branches."
+- "Draw this Mermaid diagram in Excalidraw."
 
-- 「在我開著的 Excalidraw 裡畫出這個專案的架構圖。」
-- 「把我在 Excalidraw 裡選取的那幾個框改成綠色，並加上從 API 到 DB 的箭頭。」
-- 「讀一下畫布上的流程圖，幫我檢查有沒有漏掉錯誤處理的分支，直接補上。」
-- 「把這段 Mermaid 畫到 Excalidraw。」
+### Tools
 
-畫完後你自己看一下，滿意就按 ⌘S。
-
-### MCP 工具一覽
-
-| 工具 | 作用 |
+| Tool | What it does |
 |---|---|
-| `get_scene` | 讀取畫布：每個元素的 id、位置、大小、文字、顏色、箭頭連到誰；目前選取的元素；開著的檔案；是否有未儲存變更 |
-| `add_elements` | 新增矩形、橢圓、菱形、文字、箭頭、線、框架。箭頭可以用 id 連接兩個元素，會自動從邊緣畫到邊緣，之後移動圖形箭頭也會跟著走 |
-| `add_mermaid` | 把 Mermaid（流程圖、循序圖、類別圖）轉成可編輯的 Excalidraw 圖形，自動排版 |
-| `update_elements` | 依 id 移動、縮放、改文字、改顏色與樣式；標籤跟著圖形移動，連著的箭頭重新繞線 |
-| `delete_elements` | 依 id 刪除 |
-| `clear_canvas` | 清空畫布（可 ⌘Z 還原） |
-| `render_image` | 把畫面轉成 PNG 回傳給 agent，讓它「看」自己畫的結果；不會寫出任何檔案 |
-| `zoom_to_fit` | 把你的視窗捲動、縮放到剛好看到全部內容 |
+| `get_scene` | Reads the canvas: each element's id, position, size, text, colours and arrow connections; the selection; the open file; unsaved changes |
+| `add_elements` | Adds rectangles, ellipses, diamonds, text, arrows, lines and frames. Arrows can connect elements by id; they are routed edge to edge and stay attached |
+| `add_mermaid` | Turns Mermaid (flowchart, sequence, class diagrams) into editable Excalidraw shapes, laid out automatically |
+| `update_elements` | Moves, resizes, re-labels and restyles elements by id; labels and connected arrows follow |
+| `delete_elements` | Deletes elements by id |
+| `clear_canvas` | Clears the canvas (⌘Z brings it back) |
+| `render_image` | Returns a PNG of the drawing to the agent so it can check its work; writes no files |
+| `zoom_to_fit` | Scrolls and zooms your window to show everything |
 
-**agent 做不到的事**：存檔、開檔、另存、匯出圖片檔，或讀寫你電腦上的任何檔案。這些只有你能在 App 裡操作。它只能改你目前開著的那張畫布，而且每個修改都能用 ⌘Z 還原。
+**What agents can't do:** save, open, save as or export files, or read or write anything on your Mac. They only edit the canvas you have open, and every change can be undone.
 
-## 4. 移除
+## Uninstall
 
-1. 結束 App，把「應用程式」裡的 Excalidraw 丟到垃圾桶。
-2. （可選）刪除資料：`rm -rf ~/Library/Application\ Support/Excalidraw`
-3. （可選）移除 MCP 設定：`claude mcp remove excalidraw --scope user`
+1. Quit the app and move Excalidraw from Applications to the Trash.
+2. Optional — remove its data: `rm -rf ~/Library/Application\ Support/Excalidraw`
+3. Optional — remove the MCP setup: `claude mcp remove excalidraw --scope user`
 
 ---
 
-## 開發者說明
+## For developers
 
 ```
-excalidraw-mac/
-├── web/                     Excalidraw 網頁（React + Vite），打包後放進 App
-│   ├── src/bridge.ts        App／agent 可呼叫的操作（新增、修改、匯出、存讀檔…）
-│   ├── src/App.tsx          Excalidraw 元件、選單、自動保存、未儲存狀態
-│   └── test/                網頁測試（headless Chromium）、MCP 端到端測試
-├── mac/                     Swift Package
-│   ├── Sources/ExcalidrawApp   AppKit + WKWebView 外殼
-│   ├── Sources/ExcalidrawMCP   MCP 伺服器（stdio，JSON-RPC）
-│   └── Sources/BridgeCore      共用：Unix socket、JSON、路徑
-└── scripts/build-app.sh     建置通用版 Excalidraw.app 與 zip
+web/                      the Excalidraw page (React + Vite), bundled into the app
+  src/bridge.ts           operations the app and agents can call
+  src/App.tsx             Excalidraw, menus, autosave, unsaved state
+  scripts/third-party.mjs third-party notices, generated from the bundle
+  licenses/               license texts for things that don't ship their own
+  test/                   page tests (headless Chromium), MCP end-to-end, real-app UI tests
+mac/                      Swift package
+  Sources/ExcalidrawApp   the AppKit + WKWebView shell
+  Sources/ExcalidrawMCP   the MCP server (stdio, JSON-RPC)
+  Sources/BridgeCore      shared: Unix socket, JSON, paths
+scripts/build-app.sh      builds the universal Excalidraw.app and its zip
 ```
-
-運作方式：
 
 ```
 AI agent ──stdio──▶ excalidraw-mcp ──Unix socket──▶ Excalidraw.app ──WKWebView──▶ window.excalidrawBridge
-  (Claude Code)      (App 裡的小程式)   bridge.sock      (Swift)        callAsyncJavaScript     (Excalidraw API)
+(Claude Code)       (inside the app)   bridge.sock     (Swift)       callAsyncJavaScript   (Excalidraw API)
 ```
 
-- 網頁從 App 自己的 `excalidraw://app/` 網址載入（`WKURLSchemeHandler` 讀 `Contents/Resources/web/`），字型也從這裡讀，所以不需要網路。
-- `bridge.sock` 在 `~/Library/Application Support/Excalidraw/`，資料夾權限 0700、socket 0600，只有你自己的程式能連。
-- agent 只能呼叫畫布操作；App 在沒有開著的檔案時拒絕所有操作，也不提供開檔、存檔、寫檔的方法（MCP 伺服器和 App 兩邊都擋）。
+- The page is served from the app's own `excalidraw://app/` URL scheme (`Contents/Resources/web/`), fonts included — no network needed.
+- `bridge.sock` lives in `~/Library/Application Support/Excalidraw/` (folder 0700, socket 0600): only your own processes can connect.
+- Agents can only call canvas operations. With no file open the app refuses them all, and neither the MCP server nor the app offers any way to open, save or write files.
 
-本機開發與測試：
+Local development:
 
 ```bash
 cd web && npm ci && npm run build
-npm test                                   # 網頁操作、離線、字型（需要 Chromium）
-cd ../mac && swift build -c release        # macOS；Linux 上只會編譯 MCP 伺服器
+npm test                                   # page operations, offline, fonts (needs Chromium)
+cd ../mac && swift build -c release        # on Linux only the MCP server builds
 cd ../web && MCP_BIN=../mac/.build/release/excalidraw-mcp node --test test/mcp.test.mjs
 ```
 
-在 Linux 上，`test/fake-app.mjs` 會模擬 App（同樣的 socket 協定，操作轉給 headless Chromium 裡的真實網頁），所以 MCP 伺服器可以不用 Mac 就測試。GitHub Actions（`.github/workflows/excalidraw-mac.yml`）在 macOS 上建置真正的 App，讓 MCP 伺服器自己啟動它，照「使用者開檔 → agent 畫圖 → 使用者按 ⌘S」的流程跑同一套測試，另外測強制結束後未儲存的變更能否恢復，並截圖用 OCR 確認圖真的畫在視窗裡，最後發佈下載檔。
+On Linux, `test/fake-app.mjs` stands in for the app (same socket protocol, operations run in the real page in headless Chromium), so the MCP server can be tested without a Mac. GitHub Actions builds the real app on macOS 15 and macOS 26, runs the same flow against it (user opens a file → agent draws → user presses ⌘S), clicks through the UI with real mouse and menu events, checks recovery after a forced quit, and publishes the download.
 
-Excalidraw 採用 MIT 授權；這是非官方的 Mac 包裝。
+## License
+
+This project is released under the [MIT License](LICENSE) — © 2026 TingGeorge.
+
+It bundles [Excalidraw](https://github.com/excalidraw/excalidraw) (MIT), its fonts (SIL Open Font License 1.1 and MIT) and other open-source packages, each under its own license. The full list with every license text is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), generated from what the app actually ships, and in the app under **Help › Acknowledgements**.

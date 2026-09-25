@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { thirdPartyNotices } from "./scripts/third-party.mjs";
 
 /**
  * Excalidraw 0.18.1 ships its command palette (⌘/) but does not export it, so a host
@@ -25,7 +26,7 @@ function exportCommandPalette(): Plugin {
 // excalidraw:// URL scheme, so the app never needs the network.
 export default defineConfig({
   base: "./",
-  plugins: [exportCommandPalette(), react()],
+  plugins: [exportCommandPalette(), react(), thirdPartyNotices()],
   optimizeDeps: {
     // the dev server's pre-bundling would skip the transform above
     exclude: ["@excalidraw/excalidraw"],
