@@ -101,9 +101,13 @@ jobs:
       - name: Screenshots as text (for reviewing the UI from the log)
         if: always()
         run: |
+          # Crop to the window (centred on screen) and keep it small.
           for name in screen start-light start-dark; do
             f="$RUNNER_TEMP/$name.png"; [ -f "$f" ] || continue
-            sips -Z 1100 -s format jpeg -s formatOptions 55 "$f" --out "$RUNNER_TEMP/$name.jpg" >/dev/null
+            if [ "$name" = screen ]; then crop="880 1340"; size=760; else crop="560 860"; size=640; fi
+            sips -c $crop "$f" --out "$RUNNER_TEMP/$name-crop.png" >/dev/null
+            sips -Z $size -s format jpeg -s formatOptions 45 "$RUNNER_TEMP/$name-crop.png" --out "$RUNNER_TEMP/$name.jpg" >/dev/null
+            ls -l "$RUNNER_TEMP/$name.jpg"
             echo "=====IMG $name====="; base64 -i "$RUNNER_TEMP/$name.jpg" | fold -w 2000; echo "=====END====="
           done
 
