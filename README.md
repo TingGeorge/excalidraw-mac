@@ -3,7 +3,7 @@
 把 [Excalidraw](https://github.com/excalidraw/excalidraw) 做成原生 Mac App：
 
 - **完全離線**：Excalidraw 本體、手寫字型（含中文的「小賴字體」）、Mermaid 轉換都打包在 App 裡，不連任何網路。
-- **省資源**：用 macOS 內建的 WebKit（跟 Safari 同一個引擎），沒有自帶 Chromium，App 大約 25 MB。
+- **省資源**：用 macOS 內建的 WebKit（跟 Safari 同一個引擎），沒有自帶 Chromium，App 大約 25 MB（下載檔約 17 MB）。
 - **像一般 Mac App**：⌘N / ⌘O / ⌘S / ⇧⌘S、在 Finder 雙擊 `.excalidraw` 檔開啟、匯出 PNG / SVG、關掉再打開畫布還在。
 - **內建 MCP 伺服器**：Claude Code 等 AI agent 可以直接在這個 App 裡畫圖、改圖、匯出、存檔，你在視窗裡即時看到，也可以 ⌘Z 還原 agent 的每一步。
 
