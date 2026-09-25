@@ -46,6 +46,12 @@ jobs:
           REAL_APP: "1"
         run: node --test test/mcp.test.mjs
 
+      - name: Real clicks on the drawing window (tools and buttons in the title bar row, dragging)
+        working-directory: excalidraw-mac/web
+        env:
+          EXCALIDRAW_APP_PATH: ${{ env.APP }}
+        run: node --test test/ui-mac.test.mjs
+
       - name: WebKit diagnostics, screenshot + OCR of the running app
         working-directory: excalidraw-mac/web
         run: |
@@ -77,6 +83,55 @@ jobs:
           for i in $(seq 1 50); do pgrep -x Excalidraw >/dev/null || break; sleep 0.2; done
           if pgrep -x Excalidraw >/dev/null; then echo "FAIL: app did not quit on SIGTERM"; exit 1; fi
           echo "app quit"
+
+      - name: Start screen (light and dark)
+        working-directory: excalidraw-mac/web
+        run: |
+          set -euo pipefail
+          # VoiceOver sees the actions and recent files as buttons, not loose texts and icons.
+          a11y() {
+            swift test/ax-tree.swift Excalidraw | tee "$RUNNER_TEMP/a11y.txt"
+            grep -Eq "^ *AXButton \| New File…" "$RUNNER_TEMP/a11y.txt" || { echo "FAIL: New File… is not a button"; exit 1; }
+            grep -Eq "^ *AXButton \| Open…" "$RUNNER_TEMP/a11y.txt" || { echo "FAIL: Open… is not a button"; exit 1; }
+            grep -Eq "^ *AXButton \| diagram" "$RUNNER_TEMP/a11y.txt" || { echo "FAIL: the recent file is not a button"; exit 1; }
+            if grep -E "^ *AXStaticText|^ *AXImage" "$RUNNER_TEMP/a11y.txt" | grep -Eq "New File…|Open…|move|sparkle|Document with"; then
+              echo "FAIL: row contents are exposed separately"; exit 1
+            fi
+            echo "PASS start screen accessibility"
+          }
+          shot() { # name
+            open -a "$APP" --env "EXCALIDRAW_MAC_HOME=$EXCALIDRAW_MAC_HOME"
+            sleep 3
+            screencapture -x "$RUNNER_TEMP/$1.png"
+            swift "$RUNNER_TEMP/ocr.swift" "$RUNNER_TEMP/$1.png" > "$RUNNER_TEMP/$1.txt"
+            cat "$RUNNER_TEMP/$1.txt"
+            grep -q "New File" "$RUNNER_TEMP/$1.txt" || { echo "FAIL: start screen not shown ($1)"; exit 1; }
+            grep -q "diagram" "$RUNNER_TEMP/$1.txt" || { echo "FAIL: recent file missing ($1)"; exit 1; }
+            if [ "$1" = start-light ]; then a11y; fi
+            pkill -TERM -x Excalidraw
+            for i in $(seq 1 50); do pgrep -x Excalidraw >/dev/null || break; sleep 0.2; done
+          }
+          shot start-light
+          osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' || echo "could not switch to dark mode"
+          shot start-dark
+          osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to false' || true
+
+      - name: Screenshots as text (for reviewing the UI from the log)
+        if: always()
+        run: |
+          # Crop to the window (centred on screen) and keep it small.
+          for name in screen start-light start-dark edit-pasted export-dialog canvas-dark canvas-small settings; do
+            f="$RUNNER_TEMP/$name.png"; [ -f "$f" ] || continue
+            case "$name" in
+              screen) crop="880 1340"; size=760 ;;
+              start-*) crop="560 860"; size=640 ;;
+              *) crop="1080 1920"; size=960 ;;
+            esac
+            sips -c $crop "$f" --out "$RUNNER_TEMP/$name-crop.png" >/dev/null
+            sips -Z $size -s format jpeg -s formatOptions 45 "$RUNNER_TEMP/$name-crop.png" --out "$RUNNER_TEMP/$name.jpg" >/dev/null
+            ls -l "$RUNNER_TEMP/$name.jpg"
+            echo "=====IMG $name====="; base64 -i "$RUNNER_TEMP/$name.jpg" | fold -w 2000; echo "=====END====="
+          done
 
       - uses: actions/upload-artifact@v4
         with:

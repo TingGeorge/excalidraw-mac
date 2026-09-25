@@ -32,16 +32,28 @@ export function systemLanguages(): string[] {
 }
 
 const zh = {
+  newFile: "新增檔案…",
   open: "開啟…",
   save: "儲存",
   saveAs: "另存新檔…",
-  welcome: "所有繪圖都只儲存在這台 Mac 上，離線也能用。",
+  welcome: "開始畫圖吧！畫完記得按 ⌘S 存檔。",
+  agent: "AI Agent 已連線",
+  library: "資料庫",
+  export: "匯出",
+  edited: "已編輯",
+  menuHint: "開啟、儲存、匯出與深色模式…",
 };
 const en: typeof zh = {
+  newFile: "New File…",
   open: "Open…",
   save: "Save",
   saveAs: "Save As…",
-  welcome: "Your drawings stay on this Mac. Works offline.",
+  welcome: "Start drawing! Press ⌘S to save it to your file.",
+  agent: "AI agent connected",
+  library: "Library",
+  export: "Export",
+  edited: "Edited",
+  menuHint: "Open, save, export and dark mode…",
 };
 
 export function uiStrings(langCode: string) {

@@ -1,0 +1,351 @@
+/* macOS look for Excalidraw's own UI: system font, quieter chrome, frosted
+   toolbar and corner buttons, a solid accent for the selected tool. Only CSS
+   variables and a few stable class names are touched, so Excalidraw updates
+   keep working. Panels with content (sidebar, properties, menus, dialogs)
+   keep Excalidraw's solid backgrounds. */
+.excalidraw {
+  --mac-accent: #6965db;
+  --mac-glass-bg: rgba(255, 255, 255, 0.8);
+  --mac-glass-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
+  --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Hiragino Sans", system-ui, sans-serif;
+  --border-radius-lg: 10px;
+}
+.excalidraw.theme--dark {
+  --mac-glass-bg: rgba(44, 44, 50, 0.8);
+  --mac-glass-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* The canvas fills the whole window. Excalidraw's top row shares the title bar
+   row with the traffic lights, on one grid:
+   - the row is 52 pt; every control in it is 36 pt tall at y = 8 (centred on
+     the traffic lights at y = 26): menu button, toolbar, Library/Export group;
+   - 16 pt from the window edges (the traffic lights start at 16 pt too);
+   - 12 pt between the traffic lights, the menu button and the file name.
+   The app sets --mac-traffic-lights to where the traffic lights end. */
+:root {
+  --mac-traffic-lights-end: 70px;
+  --mac-row-gap: 12px;
+  --mac-edge: 16px;
+  --mac-menu-left: calc(var(--mac-traffic-lights-end) + var(--mac-row-gap));
+}
+:root.mac-fullscreen {
+  --mac-menu-left: var(--mac-edge);
+}
+.excalidraw .FixedSideContainer_side_top {
+  top: 8px;
+}
+/* Only the menu button moves over for the traffic lights; the properties panel below it
+   stays on the 16 pt edge like the zoom and help buttons. */
+.excalidraw .App-menu_top__left > :first-child {
+  margin-left: calc(var(--mac-menu-left) - var(--mac-edge));
+}
+.excalidraw .main-menu-trigger {
+  width: 36px;
+  height: 36px;
+}
+
+/* Toolbar: 36 pt = 32 pt buttons + 2 pt padding; inner corners follow the outer ones. */
+.excalidraw .Island.App-toolbar {
+  padding: 2px;
+}
+.excalidraw .App-toolbar-container .ToolIcon__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+.excalidraw .App-toolbar .ToolIcon {
+  height: 32px;
+}
+.excalidraw .App-toolbar .App-toolbar__extra-tools-trigger {
+  width: 32px;
+  height: 32px;
+  padding: 8px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+/* No number badges on the tools and no hint line under the toolbar. */
+.excalidraw .ToolIcon__keybinding,
+.excalidraw .HintViewer {
+  display: none;
+}
+
+/* Selected tool: solid accent, white icon. */
+.excalidraw .ToolIcon .ToolIcon_type_radio:checked + .ToolIcon__icon,
+.excalidraw .ToolIcon .ToolIcon_type_checkbox:checked + .ToolIcon__icon {
+  background: var(--mac-accent);
+  --icon-fill-color: #ffffff;
+}
+.excalidraw .ToolIcon .ToolIcon_type_radio:checked + .ToolIcon__icon svg,
+.excalidraw .ToolIcon .ToolIcon_type_checkbox:checked + .ToolIcon__icon svg {
+  color: #ffffff;
+}
+
+/* The Library button lives in our own top-right group instead (its empty wrapper
+   would otherwise add a gap at the window edge). */
+.excalidraw .default-sidebar-trigger,
+.excalidraw .layer-ui__wrapper__top-right > .sidebar-trigger__label-element {
+  display: none;
+}
+
+/* "AI agent connected" indicator, bottom right next to the help button. */
+.agent-status {
+  position: fixed;
+  right: 64px;
+  bottom: 16px;
+  z-index: 10;
+  height: 36px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", system-ui, sans-serif;
+  color: #3a3a3c;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  pointer-events: none;
+}
+.agent-status.dark {
+  color: #d7d8de;
+  background: rgba(44, 44, 50, 0.8);
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.agent-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34c759;
+}
+
+/* Toolbar, menu, zoom, undo/redo and help: frosted glass. */
+.excalidraw .Island.App-toolbar,
+.excalidraw .main-menu-trigger,
+.excalidraw .help-icon,
+.excalidraw .zoom-actions,
+.excalidraw .undo-redo-buttons {
+  background-color: var(--mac-glass-bg);
+  box-shadow: var(--mac-glass-shadow);
+  border-radius: var(--border-radius-lg);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+/* Excalidraw paints these buttons with !important; only !important overrides it. */
+.excalidraw .zoom-actions .zoom-button,
+.excalidraw .undo-redo-buttons button {
+  background-color: transparent !important;
+}
+.excalidraw .main-menu-trigger:hover,
+.excalidraw .help-icon:hover,
+.excalidraw .zoom-actions .zoom-button:hover,
+.excalidraw .undo-redo-buttons button:hover {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+}
+.excalidraw.theme--dark .main-menu-trigger:hover,
+.excalidraw.theme--dark .help-icon:hover,
+.excalidraw.theme--dark .zoom-actions .zoom-button:hover,
+.excalidraw.theme--dark .undo-redo-buttons button:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* File name and folder, 12 pt after the menu button (the window's title). */
+.mac-title {
+  position: fixed;
+  top: 8px;
+  left: calc(var(--mac-menu-left) + 36px + var(--mac-row-gap));
+  height: 36px;
+  /* measured by the page: the room left of the toolbar (hidden when too narrow) */
+  max-width: var(--mac-title-room, 200px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  z-index: 3;
+  pointer-events: none;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", system-ui, sans-serif;
+  line-height: 16px;
+  color: #1d1d1f;
+}
+.mac-title div {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mac-title .name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.mac-title .folder {
+  font-size: 11px;
+  line-height: 14px;
+  color: #86868b;
+}
+.mac-title.mac-hidden {
+  visibility: hidden;
+}
+.mac-title.dark {
+  color: #ececf1;
+}
+.mac-title.dark .folder {
+  color: #98989f;
+}
+
+/* Library and Export: one frosted group, the same height and style as the toolbar. */
+.mac-top-actions {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--border-radius-lg);
+  background-color: var(--mac-glass-bg);
+  box-shadow: var(--mac-glass-shadow);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+.mac-top-actions button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-on-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mac-top-actions button:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+.excalidraw.theme--dark .mac-top-actions button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------------------------------------------------------------------------
+   Panels, menus and dialogs */
+
+/* Properties panel: a scrollbar never squeezes the content; with several shapes selected,
+   Align and Layers come first (they're what you want then). */
+.excalidraw .App-menu__left,
+.excalidraw .selected-shape-actions {
+  scrollbar-gutter: stable;
+}
+.excalidraw .panelColumn > fieldset:has(.buttonList > div[style*="flex-basis"]) {
+  order: -2;
+}
+.excalidraw .panelColumn:has(> fieldset .buttonList > div[style*="flex-basis"]) > fieldset:has(.zIndexButton) {
+  order: -1;
+}
+
+/* "No arrowhead" is a choice, not a disabled button: draw it like the others. */
+.excalidraw .iconSelectList svg g[opacity="0.3"],
+.excalidraw .picker-content svg g[opacity="0.3"] {
+  opacity: 0.85;
+}
+
+/* Menu group headings line up with the items' icons. */
+.excalidraw [data-testid="canvas-background-label"],
+.excalidraw .dropdown-menu-group-title,
+.excalidraw .dropdown-menu-container > div[style*="font-weight"] {
+  padding-left: 10px;
+}
+
+/* Dialogs: never under the title bar row, the same dimmed backdrop, a close button. */
+.excalidraw .Modal {
+  padding-top: 64px;
+}
+.excalidraw .Modal__background {
+  background-color: rgba(18, 18, 18, 0.28) !important;
+}
+.mac-dialog-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 5;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-on-surface, #1d1d1f);
+  background: rgba(0, 0, 0, 0.06);
+}
+.mac-dialog-close:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+.excalidraw.theme--dark .mac-dialog-close {
+  background: rgba(255, 255, 255, 0.1);
+}
+.excalidraw.theme--dark .mac-dialog-close:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Mermaid dialog: readable input, the ⌘↩ hint centred on the Insert button. */
+.excalidraw .ttd-dialog-input {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.excalidraw .ttd-dialog-panel-button-container,
+.excalidraw .ttd-dialog-submit-shortcut {
+  align-items: center;
+}
+
+/* Right-click menu: Mac menu text size, rounded, scrolls instead of running off screen. */
+.excalidraw .context-menu {
+  font-family: var(--ui-font);
+  font-size: 13px;
+  padding: 5px;
+  border-radius: 10px;
+  max-height: calc(100vh - 72px);
+  overflow-y: auto;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+.excalidraw .context-menu-item {
+  border-radius: 6px;
+  line-height: 20px;
+}
+.excalidraw .context-menu-item__label,
+.excalidraw .context-menu-item__shortcut {
+  font-size: 13px;
+}
+.excalidraw .context-menu-item__shortcut {
+  opacity: 0.55;
+}
+
+/* Empty canvas: "Help" and its "?" key sit together. */
+.excalidraw .welcome-screen-menu-item__shortcut {
+  margin-left: 16px;
+}
+
+/* Tooltips for icon buttons (see macPolish.ts). */
+.mac-tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: 280px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font: 12px/16px -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", system-ui, sans-serif;
+  color: #ffffff;
+  background: rgba(30, 30, 34, 0.94);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  white-space: nowrap;
+}
+.mac-tooltip.dark {
+  color: #1d1d1f;
+  background: rgba(236, 236, 241, 0.96);
+}
+
+/* Export preview in WebKit: the dark theme as a CSS filter (see canvasFilter.ts). */
+.excalidraw .ImageExportModal__preview__canvas > canvas[data-mac-filter],
+canvas[data-mac-filter] {
+  filter: invert(93%) hue-rotate(180deg) !important;
+}

@@ -9,6 +9,7 @@ import {
   convertToExcalidrawElements,
   exportToBlob,
   exportToSvg,
+  FONT_FAMILY,
   getCommonBounds,
   getSceneVersion,
   loadFromBlob,
@@ -37,6 +38,7 @@ export function setDirty(value: boolean) {
   if (doc.dirty !== value) {
     doc.dirty = value;
     postNative({ type: "dirty", value });
+    window.dispatchEvent(new CustomEvent("dirty", { detail: value }));
   }
 }
 
@@ -261,6 +263,12 @@ function isReference(end: any) {
   return end && typeof end === "object" && typeof end.id === "string" && end.type === undefined;
 }
 
+/** "1 = hand-drawn" means Excalifont, not the old Virgil: Excalifont falls back to a hand-drawn
+ * Chinese/Japanese font (Xiaolai), Virgil falls back to the system sans-serif. */
+function handDrawnFont(fontFamily: unknown) {
+  return fontFamily === 1 ? FONT_FAMILY.Excalifont : fontFamily;
+}
+
 function addElements(api: Api, p: Params) {
   const skeletons: El[] = p.elements;
   if (!Array.isArray(skeletons) || skeletons.length === 0) {
@@ -279,6 +287,8 @@ function addElements(api: Api, p: Params) {
       usedIds.add(s.id);
     }
     if (s.type === "text" && typeof s.text !== "string") throw new Error("text elements need `text`");
+    s.fontFamily = handDrawnFont(s.fontFamily);
+    if (s.label && typeof s.label === "object") s.label.fontFamily = handDrawnFont(s.label.fontFamily);
   }
 
   // Arrows that point at elements by id are laid out after the shapes exist,
@@ -393,6 +403,7 @@ function updateElements(api: Api, p: Params) {
     if (!el || el.isDeleted) throw new Error(`no element with id "${u?.id}"`);
     const patch: Params = {};
     for (const k of UPDATABLE) if (k in u) patch[k] = u[k];
+    if ("fontFamily" in patch) patch.fontFamily = handDrawnFont(patch.fontFamily);
     const isContainer = el.type !== "text" && !!boundTextOf(el, cur);
     if (isContainer && "fontSize" in patch) {
       const t = boundTextOf(el, cur)!;
@@ -553,7 +564,8 @@ async function exportImage(api: Api, p: Params) {
     mimeType: "image/png",
     getDimensions: (w: number, h: number) => {
       // Stay under WebKit's maximum canvas area.
-      const scale = Math.min(wanted, Math.sqrt(16_000_000 / Math.max(w * h, 1)));
+      const fit = typeof p.max_size === "number" && p.max_size > 0 ? p.max_size / Math.max(w, h, 1) : Infinity;
+      const scale = Math.min(wanted, fit, Math.sqrt(16_000_000 / Math.max(w * h, 1)));
       size = { width: Math.round(w * scale), height: Math.round(h * scale) };
       return { ...size, scale };
     },
@@ -596,6 +608,28 @@ function diagnostics(api: Api) {
     loadedFonts: [...new Set(faces.filter((f) => f.status === "loaded").map((f) => f.family))],
     dirty: doc.dirty,
     sceneVersion: getSceneVersion(api.getSceneElementsIncludingDeleted()),
+    activeTool: api.getAppState().activeTool.type,
+    // what exported images are named after, and whether they export dark
+    exportName: api.getAppState().name,
+    exportWithDarkMode: api.getAppState().exportWithDarkMode,
+    openDialog: api.getAppState().openDialog?.name ?? null,
+    dialogText: (document.querySelector(".Modal") as HTMLElement | null)?.innerText.slice(0, 400) ?? null,
+    sidebarOpen: !!document.querySelector(".default-sidebar"),
+    // Where things are on screen, for UI tests that click them.
+    rects: Object.fromEntries(
+      Object.entries({
+        toolbar: ".App-toolbar",
+        rectangleTool: '.ToolIcon:has([data-testid="toolbar-rectangle"])',
+        menu: ".main-menu-trigger",
+        library: ".mac-top-actions .mac-library",
+        sidebarClose: '[data-testid="sidebar-close"]',
+        actions: ".mac-top-actions",
+        title: ".mac-title",
+      }).map(([k, sel]) => {
+        const r = document.querySelector(sel)?.getBoundingClientRect();
+        return [k, r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null];
+      }),
+    ),
   };
 }
 
@@ -624,7 +658,256 @@ const ops: Record<string, (api: Api, p: Params) => unknown> = {
     return {};
   },
   status: (api) => ({ dirty: doc.dirty, elementCount: liveElements(api).length }),
+  edit: editCommand,
+  view: viewCommand,
+  open_export_dialog: (api) => {
+    api.updateScene({ appState: { openDialog: { name: "imageExport" } } });
+    return {};
+  },
+  set_theme_preference: (api, p) => {
+    setThemePreference(api, p.preference);
+    return {};
+  },
+  toggle_library: (api) => {
+    api.toggleSidebar({ name: "default", tab: "library" });
+    return {};
+  },
+  set_document_info: (api, p) => {
+    document.documentElement.classList.toggle("mac-fullscreen", !!p.fullscreen);
+    // Excalidraw names exported images after the drawing ("uiux_test.png").
+    if (typeof p.name === "string" && api.getAppState().name !== p.name) {
+      api.updateScene({ appState: { name: p.name }, captureUpdate: CaptureUpdateAction.NEVER });
+    }
+    if (typeof p.trafficLightsEnd === "number") {
+      document.documentElement.style.setProperty("--mac-traffic-lights-end", `${p.trafficLightsEnd}px`);
+    }
+    window.dispatchEvent(new CustomEvent("document-info", { detail: p }));
+    return {};
+  },
+  set_agent_status: (_api, p) => {
+    window.dispatchEvent(new CustomEvent("agent-status", { detail: !!p.connected }));
+    return {};
+  },
 };
+
+// ---------------------------------------------------------------------------
+// Edit and View menu commands (the app's menu bar drives the canvas through these)
+
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+
+/** Presses a key combination on the canvas, exactly as Excalidraw's shortcuts expect. */
+function pressKey(key: string, code: string, mods: { cmd?: boolean; shift?: boolean; alt?: boolean } = {}) {
+  const target = document.querySelector(".excalidraw-container") ?? document;
+  target.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key,
+      code,
+      metaKey: !!mods.cmd && isMac,
+      ctrlKey: !!mods.cmd && !isMac,
+      shiftKey: !!mods.shift,
+      altKey: !!mods.alt,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/** A text field (Excalidraw's text editor, a search box…) has the keyboard. */
+function isEditingText() {
+  const a = document.activeElement as HTMLElement | null;
+  if (!a) return false;
+  if (a.isContentEditable || a.tagName === "TEXTAREA") return true;
+  return a.tagName === "INPUT" && !["checkbox", "radio", "range", "button", "submit"].includes((a as HTMLInputElement).type);
+}
+
+let lastPointer: [number, number] = [-1, -1];
+document.addEventListener("pointermove", (e) => (lastPointer = [e.clientX, e.clientY]), { capture: true, passive: true });
+
+const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Undo / Redo / Cut / Copy / Paste / Select All from the menu bar. While a text field has
+ * the keyboard, the app lets WebKit do it (`native: true`); otherwise the canvas does it.
+ * Copy and Cut return what Excalidraw put on the clipboard for the app to place on the
+ * system pasteboard; Paste gets the pasteboard's text / image from the app.
+ */
+async function editCommand(_api: Api, p: Params) {
+  if (isEditingText()) return { native: true };
+  // Excalidraw only takes clipboard events while it has the focus…
+  const container = document.querySelector<HTMLElement>(".excalidraw-container");
+  if (container && !container.contains(document.activeElement)) container.focus({ preventScroll: true });
+  switch (p.action) {
+    case "undo":
+      pressKey("z", "KeyZ", { cmd: true });
+      return {};
+    case "redo":
+      pressKey("z", "KeyZ", { cmd: true, shift: true });
+      return {};
+    case "selectAll":
+      pressKey("a", "KeyA", { cmd: true });
+      return {};
+    case "copy":
+    case "cut": {
+      // Excalidraw writes with navigator.clipboard.writeText when it can, else into the event's
+      // clipboardData; catch both and hand the text to the app (the page can't reach the
+      // system pasteboard without a click in it).
+      const data = new DataTransfer();
+      const clipboard = navigator.clipboard as (Clipboard & { writeText: Clipboard["writeText"] }) | undefined;
+      if (clipboard) {
+        Object.defineProperty(clipboard, "writeText", {
+          configurable: true,
+          value: async (text: string) => data.setData("text/plain", text),
+        });
+      }
+      try {
+        document.dispatchEvent(new ClipboardEvent(p.action, { clipboardData: data, bubbles: true, cancelable: true }));
+        await tick(60); // Excalidraw fills the clipboard asynchronously
+      } finally {
+        if (clipboard) delete (clipboard as any).writeText;
+      }
+      return { clipboard: Object.fromEntries(data.types.map((t) => [t, data.getData(t)])) };
+    }
+    case "paste": {
+      // …and pastes where the pointer is, if that's over the canvas; else in the middle of the view.
+      const [x, y] = lastPointer;
+      if (!(document.elementFromPoint(x, y) instanceof HTMLCanvasElement)) {
+        document.dispatchEvent(
+          new PointerEvent("pointermove", { clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }),
+        );
+      }
+      const data = new DataTransfer();
+      if (typeof p.text === "string") data.setData("text/plain", p.text);
+      if (typeof p.image === "string") {
+        const bytes = Uint8Array.from(atob(p.image), (c) => c.charCodeAt(0));
+        data.items.add(new File([bytes], "image.png", { type: "image/png" }));
+      }
+      document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      await tick(60);
+      return {};
+    }
+    default:
+      throw new Error(`unknown edit action "${p.action}"`);
+  }
+}
+
+/**
+ * Tells the app what the Edit menu can do: Undo / Redo follow Excalidraw's own buttons, Cut /
+ * Copy need a selection, and while a text field has the keyboard WebKit's own text editing
+ * commands take over.
+ */
+export function watchEditState(api: Api) {
+  let last = "";
+  const send = () => {
+    const disabled = (id: string) => !!document.querySelector(`[data-testid="${id}"]`)?.hasAttribute("disabled");
+    const state = {
+      textEditing: isEditingText(),
+      canUndo: !disabled("button-undo"),
+      canRedo: !disabled("button-redo"),
+      hasSelection: Object.values(api.getAppState().selectedElementIds ?? {}).some(Boolean),
+    };
+    const text = JSON.stringify(state);
+    if (text !== last) {
+      last = text;
+      postNative({ type: "editState", ...state });
+    }
+  };
+  let pending = false;
+  const schedule = () => {
+    if (pending) return;
+    pending = true;
+    queueMicrotask(() => {
+      pending = false;
+      send();
+    });
+  };
+  document.addEventListener("focusin", schedule);
+  document.addEventListener("focusout", () => setTimeout(send));
+  api.onChange(schedule);
+  new MutationObserver(schedule).observe(document.body, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["disabled"],
+  });
+  send();
+}
+
+/** View menu: the same actions as Excalidraw's own shortcuts. */
+function viewCommand(api: Api, p: Params) {
+  switch (p.action) {
+    case "zoomIn":
+      pressKey("=", "Equal", { cmd: true });
+      break;
+    case "zoomOut":
+      pressKey("-", "Minus", { cmd: true });
+      break;
+    case "actualSize":
+      pressKey("0", "Digit0", { cmd: true });
+      break;
+    case "zoomToFit":
+      pressKey("!", "Digit1", { shift: true });
+      break;
+    case "toggleTheme": {
+      const theme = api.getAppState().theme === "dark" ? "light" : "dark";
+      setThemePreference(api, theme);
+      postNative({ type: "themePreference", value: theme });
+      break;
+    }
+    case "toggleLibrary":
+      api.toggleSidebar({ name: "default", tab: "library" });
+      break;
+    default:
+      throw new Error(`unknown view action "${p.action}"`);
+  }
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// Appearance: follow the system, or always light / dark (Settings, View menu, Excalidraw's menu)
+
+const systemDark = () => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+export const themeState = { preference: "system" as string, applied: "" };
+
+export function setThemePreference(api: Api, preference: string) {
+  themeState.preference = preference === "light" || preference === "dark" ? preference : "system";
+  const theme = themeState.preference === "system" ? (systemDark() ? "dark" : "light") : themeState.preference;
+  themeState.applied = theme;
+  if (api.getAppState().theme !== theme) {
+    api.updateScene({ appState: { theme: theme as "light" | "dark" }, captureUpdate: CaptureUpdateAction.NEVER });
+  }
+}
+
+/** Excalidraw's own "Dark mode" item picks an explicit theme; remember it as the preference. */
+export function noteThemeChange(theme: string) {
+  if (themeState.applied && theme !== themeState.applied) {
+    themeState.applied = theme;
+    themeState.preference = theme;
+    postNative({ type: "themePreference", value: theme });
+  }
+}
+
+export function watchSystemAppearance(api: Api) {
+  window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (themeState.preference === "system") setThemePreference(api, "system");
+  });
+}
+
+/** How the canvas background looks on screen (dark theme inverts it like Excalidraw's CSS filter). */
+export function displayedBackground(hex: string, theme: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return theme === "dark" ? "#121212" : "#ffffff";
+  let [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255);
+  if (theme === "dark") {
+    // invert(93%) then hue-rotate(180deg), as in Excalidraw's --theme-filter
+    [r, g, b] = [r, g, b].map((c) => 0.93 * (1 - c) + 0.07 * c);
+    [r, g, b] = [
+      -0.574 * r + 1.43 * g + 0.144 * b,
+      0.426 * r + 0.43 * g + 0.144 * b,
+      0.426 * r + 1.43 * g - 0.856 * b,
+    ];
+  }
+  const hex2 = (c: number) => Math.round(Math.min(1, Math.max(0, c)) * 255).toString(16).padStart(2, "0");
+  return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
+}
 
 export function installBridge(api: Api) {
   window.excalidrawBridge = {

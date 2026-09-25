@@ -1,12 +1,13 @@
 #if os(macOS)
+import AppKit
 import BridgeCore
-import Foundation
 
-/// Listens on the Unix socket for the MCP server (excalidraw-mcp) and runs its requests.
-/// File operations are done here so they behave exactly like the File menu;
-/// everything else is passed to the page.
+/// Listens on the Unix socket for the MCP server (excalidraw-mcp) and passes its requests to
+/// the page. Only canvas operations are allowed: agents can't open, save or export files.
 @MainActor
 final class AppBridge {
+    /// Methods that work even when no drawing is open.
+    static let anytime: Set<String> = ["ping", "diagnostics", "status", "window_info"]
     /// Page methods an agent may call.
     static let forwarded: Set<String> = [
         "ping", "diagnostics", "status", "get_scene", "add_elements", "add_mermaid", "update_elements",
@@ -29,6 +30,9 @@ final class AppBridge {
                 self?.handle(line) { reply in try? connection.writeLine(reply) }
             }
         }
+        server.onConnectionsChanged = { [weak self] count in
+            Task { @MainActor in self?.canvas.setAgentConnected(count > 0) }
+        }
         try server.start()
         self.server = server
     }
@@ -48,28 +52,38 @@ final class AppBridge {
             }
         }
 
-        switch method {
-        case "open_file":
-            guard let path = params["path"]?.string else { return respond(.failure(BridgeError("`path` is required"))) }
-            if store.dirty && params["discard_changes"]?.bool != true {
-                let file = store.currentFile.map { " to \($0.path)" } ?? ""
-                return respond(
-                    .failure(
-                        BridgeError(
-                            "The canvas has unsaved changes\(file). Save them with save_file first, or pass discard_changes: true to replace them."
-                        )))
-            }
-            canvas.open(URL(fileURLWithPath: path)) { error in
-                if let error { respond(.failure(error)) } else { respond(.success(["path": .string(path)])) }
-            }
+        // Agents work on the drawing the user has open; they never open or save files.
+        if !Self.anytime.contains(method) && !canvas.hasDocument {
+            return respond(
+                .failure(
+                    BridgeError(
+                        "No drawing is open in Excalidraw. Ask the user to create a new file (File > New File…) or open one in the app, then try again."
+                    )))
+        }
 
-        case "save_file":
-            guard let url = params["path"]?.string.map({ URL(fileURLWithPath: $0) }) ?? store.currentFile else {
-                return respond(.failure(BridgeError("This drawing has never been saved: pass a path.")))
-            }
-            canvas.write(to: url) { error in
-                if let error { respond(.failure(error)) } else { respond(.success(["path": .string(url.path)])) }
-            }
+        switch method {
+        case "window_info":
+            // Screen position of the drawing window (top-left origin), for UI tests.
+            let frame = canvas.window.frame
+            let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+            respond(
+                .success([
+                    "x": .double(frame.minX), "y": .double(screenHeight - frame.maxY),
+                    "width": .double(frame.width), "height": .double(frame.height),
+                    "visible": .bool(canvas.window.isVisible),
+                    "trafficLightsStart": .double(
+                        Double(canvas.window.standardWindowButton(.closeButton).map { $0.convert($0.bounds, to: nil).minX } ?? -1)),
+                    "trafficLightsEnd": .double(Double(canvas.trafficLightsEnd)),
+                    // Middle of the traffic lights, from the top of the window (the row's middle is 26).
+                    "trafficLightsMiddle": .double(
+                        Double(
+                            canvas.window.standardWindowButton(.closeButton).map {
+                                frame.height - $0.convert($0.bounds, to: nil).midY
+                            } ?? -1)),
+                    "appearance": .string(canvas.window.effectiveAppearance.name == .darkAqua ? "dark" : "light"),
+                    // Only one of the drawing window and the start screen should ever show.
+                    "visibleWindows": .int(NSApp.windows.filter { $0.isVisible && !($0 is NSPanel) }.count),
+                ]))
 
         case "get_scene":
             canvas.call("get_scene", params) { result in
