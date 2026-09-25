@@ -35,16 +35,21 @@ final class StartWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
+        window.autorecalculatesKeyViewLoop = true
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.delegate = self
         window.contentView = makeContent()
+        // Centred the first time, then wherever the user put it.
         window.center()
+        _ = window.setFrameAutosaveName("ExcalidrawStartWindow")
     }
 
     func show() {
         search.stringValue = ""
         reloadRecent()
+        // Back on screen if the display it was on is gone.
+        if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(window.frame) }) { window.center() }
         window.makeKeyAndOrderFront(nil)
     }
 
@@ -251,7 +256,9 @@ private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// A row with hover highlighting that runs `action` when clicked.
+/// A row with hover highlighting that runs `action` when clicked. For VoiceOver and the
+/// keyboard it is one button (Tab to it, Space or Return to press it); its icon and texts are
+/// not separate elements.
 @MainActor
 private class HoverRow: NSView {
     var hovering = false { didSet { if hovering != oldValue { hoverChanged() } } }
@@ -262,6 +269,35 @@ private class HoverRow: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 8
+        focusRingType = .exterior
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityChildren() -> [Any]? { [] }
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+
+    // Like buttons: in the Tab order when "Keyboard navigation" is on in System Settings.
+    override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled }
+    override var canBecomeKeyView: Bool { NSApp.isFullKeyboardAccessEnabled }
+    override func keyDown(with event: NSEvent) {
+        if [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? "") { action() } else { super.keyDown(with: event) }
+    }
+    override func becomeFirstResponder() -> Bool {
+        needsDisplay = true
+        return true
+    }
+    override func resignFirstResponder() -> Bool {
+        needsDisplay = true
+        return true
+    }
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() {
+        NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -278,7 +314,9 @@ private class HoverRow: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { action() }
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        hovering = false  // the window goes away; don't come back highlighted
+        action()
     }
 
     func hoverChanged() { needsDisplay = true }
@@ -294,6 +332,7 @@ private final class ActionRow: HoverRow {
         super.init(action: action)
         let image = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
         image.symbolConfiguration = .init(pointSize: 15, weight: .medium)
+        image.setAccessibilityElement(false)
         image.contentTintColor = prominent ? excalidrawAccent : .secondaryLabelColor
         let label = NSTextField(labelWithString: title)
         label.font = .systemFont(ofSize: 13, weight: prominent ? .semibold : .medium)
@@ -312,27 +351,22 @@ private final class ActionRow: HoverRow {
             row.bottomAnchor.constraint(equalTo: bottomAnchor),
             image.widthAnchor.constraint(equalToConstant: 20),
         ])
-        setAccessibilityRole(.button)
         setAccessibilityLabel(title)
-        if prominent {
-            layer?.shadowColor = NSColor.black.withAlphaComponent(0.08).cgColor
-            layer?.shadowOpacity = 1
-            layer?.shadowRadius = 2
-            layer?.shadowOffset = NSSize(width: 0, height: -1)
-        }
+        if let shortcut { setAccessibilityHelp(shortcut) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    // Only the row under the pointer is highlighted; "New File…" stands out by its accent icon
+    // and bold title, not by a background of its own.
     override func updateLayer() {
-        let base: NSColor = prominent ? .controlBackgroundColor : .clear
-        layer?.backgroundColor = (hovering ? NSColor.labelColor.withAlphaComponent(0.07) : base).cgColor
+        layer?.backgroundColor = (hovering ? NSColor.labelColor.withAlphaComponent(0.07) : .clear).cgColor
     }
 
     override var wantsUpdateLayer: Bool { true }
 }
 
-/// A recent file: preview, name, folder, date. Highlighted in the accent colour on hover.
+/// A recent file: preview, name, folder, date. Lightly highlighted on hover, like the actions.
 @MainActor
 private final class RecentRow: HoverRow {
     private let name: NSTextField
@@ -387,8 +421,8 @@ private final class RecentRow: HoverRow {
             row.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         toolTip = url.path
-        setAccessibilityRole(.button)
-        setAccessibilityLabel(url.lastPathComponent)
+        setAccessibilityLabel(url.deletingPathExtension().lastPathComponent)
+        setAccessibilityHelp(recoverable ? detail.stringValue : url.deletingLastPathComponent().path)
 
         let menu = NSMenu()
         menu.addItem(ClosureMenuItem(title: L10n.t("Show in Finder", "在 Finder 中顯示")) {
@@ -404,14 +438,14 @@ private final class RecentRow: HoverRow {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        layer?.backgroundColor = (hovering ? excalidrawAccent : NSColor.clear).cgColor
+        layer?.backgroundColor = (hovering ? NSColor.labelColor.withAlphaComponent(0.06) : .clear).cgColor
     }
 
     override func hoverChanged() {
         super.hoverChanged()
-        name.textColor = hovering ? .white : .labelColor
-        detail.textColor = hovering ? .white.withAlphaComponent(0.85) : (recoverable ? .systemOrange : .secondaryLabelColor)
-        date.textColor = hovering ? .white.withAlphaComponent(0.85) : .secondaryLabelColor
+        name.textColor = .labelColor
+        detail.textColor = recoverable ? .systemOrange : .secondaryLabelColor
+        date.textColor = .secondaryLabelColor
     }
 
     /// "14:05" today, "Yesterday", else "Sep 20" (in the system language).

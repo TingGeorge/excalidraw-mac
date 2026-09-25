@@ -30,6 +30,29 @@ function bridge(method, params = {}) {
 }
 
 const mouse = (...args) => execFileSync("swift", [MOUSE, ...args.map(String)], { stdio: "inherit" });
+const osa = (script) => execFileSync("osascript", ["-e", script]).toString().trim();
+const inApp = (script) => osa(`tell application "System Events" to tell process "Excalidraw"\n${script}\nend tell`);
+const menuItem = (menu, item) => `menu item "${item}" of menu "${menu}" of menu bar item "${menu}" of menu bar 1`;
+/** Opens a menu of the menu bar (so it's validated), reads it, closes it. */
+function readMenu(menu, what) {
+  inApp(`click menu bar item "${menu}" of menu bar 1`);
+  try {
+    return inApp(what);
+  } finally {
+    osa('tell application "System Events" to key code 53');
+  }
+}
+const clickMenu = (menu, item) => inApp(`click ${menuItem(menu, item)}`);
+const shot = (name) => process.env.RUNNER_TEMP && execFileSync("screencapture", ["-x", join(process.env.RUNNER_TEMP, `${name}.png`)]);
+const count = async () => (await bridge("status")).elementCount;
+async function waitUntil(fn, ms, what) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (await fn()) return;
+    await sleep(100);
+  }
+  assert.fail(`timed out: ${what}`);
+}
 const centre = (win, r) => [win.x + r.x + r.width / 2, win.y + r.y + r.height / 2];
 
 test("title bar row of the drawing window", { skip: !(HOME && APP) && "needs the Mac app" }, async (t) => {
@@ -84,5 +107,80 @@ test("title bar row of the drawing window", { skip: !(HOME && APP) && "needs the
     assert.ok(Math.abs(moved.x - win.x - 120) <= 6 && Math.abs(moved.y - win.y - 60) <= 6, `window moved to ${moved.x},${moved.y} from ${win.x},${win.y}`);
     mouse("drag", x + 120, y + 60, x, y); // put it back for the screenshot
     await sleep(500);
+  });
+
+  await t.test("Edit menu works on the canvas (H3)", async () => {
+    const n = await count();
+    assert.ok(n > 0, "the drawing from the MCP test is open");
+    clickMenu("Edit", "Select All");
+    await sleep(500);
+    const enabled = readMenu("Edit", `get {name of menu item 1, enabled of menu item "Copy", enabled of menu item "Undo"} of menu "Edit" of menu bar item "Edit" of menu bar 1`);
+    console.log("Edit menu (undo title, copy enabled, undo enabled):", enabled);
+    assert.match(enabled, /^Undo, true, /, "the first item says just “Undo”, and Copy is enabled with a selection");
+    clickMenu("Edit", "Copy");
+    await sleep(500);
+    assert.match(execFileSync("pbpaste").toString(), /excalidraw\/clipboard/, "Copy put the shapes on the system pasteboard");
+    clickMenu("Edit", "Paste");
+    await waitUntil(async () => (await count()) === 2 * n, 4000, "menu Paste added one copy");
+    osa('tell application "System Events" to keystroke "v" using command down');
+    await waitUntil(async () => (await count()) === 3 * n, 4000, "⌘V added one more copy");
+    await sleep(800);
+    assert.equal(await count(), 3 * n, "⌘V pasted exactly once");
+    shot("edit-pasted");
+    clickMenu("Edit", "Undo");
+    await waitUntil(async () => (await count()) === 2 * n, 4000, "menu Undo removed the last paste");
+    clickMenu("Edit", "Undo");
+    await waitUntil(async () => (await count()) === n, 4000, "menu Undo removed the first paste");
+  });
+
+  await t.test("File > Export Image… opens the export dialog (M10, L2)", async () => {
+    clickMenu("File", "Export Image…");
+    await waitUntil(async () => (await bridge("diagnostics")).openDialog === "imageExport", 4000, "export dialog");
+    assert.equal((await bridge("diagnostics")).exportName, "diagram", "exports are named after the file");
+    shot("export-dialog");
+    osa('tell application "System Events" to key code 53');
+    await waitUntil(async () => (await bridge("diagnostics")).openDialog === null, 4000, "export dialog closed");
+  });
+
+  /** The traffic lights stay centred in the 52 pt row, 16 pt from the left (H2, M5). */
+  async function assertLightsInRow(what) {
+    for (const delay of [0, 150, 400, 1000]) {
+      await sleep(delay);
+      const w = await bridge("window_info");
+      assert.ok(Math.abs(w.trafficLightsStart - 16) <= 1, `${what}: lights start at ${w.trafficLightsStart}`);
+      assert.ok(Math.abs(w.trafficLightsMiddle - 26) <= 1, `${what}: lights centred at ${w.trafficLightsMiddle}`);
+    }
+  }
+
+  await t.test("traffic lights stay put: dark mode, light mode, resizing (H2, M5)", async () => {
+    await assertLightsInRow("start");
+    clickMenu("View", "Dark Mode");
+    await waitUntil(async () => (await bridge("window_info")).appearance === "dark", 4000, "dark window");
+    await assertLightsInRow("dark mode");
+    shot("canvas-dark");
+    clickMenu("View", "Dark Mode");
+    await waitUntil(async () => (await bridge("window_info")).appearance === "light", 4000, "light window");
+    await assertLightsInRow("light mode");
+    const before = await bridge("window_info");
+    inApp(`set size of front window to {1100, 720}`);
+    await assertLightsInRow("resized");
+    inApp(`set size of front window to {700, 400}`);
+    await sleep(500);
+    const small = await bridge("window_info");
+    assert.ok(small.width >= 960 && small.height >= 600, `minimum size ${small.width}×${small.height} (M1)`);
+    await assertLightsInRow("smallest size");
+    shot("canvas-small");
+    inApp(`set size of front window to {${before.width}, ${before.height}}`);
+    await sleep(500);
+  });
+
+  await t.test("Settings… (⌘,) opens the settings window (L2)", async () => {
+    clickMenu("Excalidraw", "Settings…");
+    await sleep(800);
+    assert.equal(inApp(`exists window "Settings"`), "true");
+    shot("settings");
+    osa('tell application "System Events" to keystroke "w" using command down');
+    await sleep(500);
+    assert.equal(inApp(`exists window "Settings"`), "false");
   });
 });

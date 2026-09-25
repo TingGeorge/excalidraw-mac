@@ -41,6 +41,7 @@ const zh = {
   library: "資料庫",
   export: "匯出",
   edited: "已編輯",
+  menuHint: "開啟、儲存、匯出與深色模式…",
 };
 const en: typeof zh = {
   newFile: "New File…",
@@ -52,6 +53,7 @@ const en: typeof zh = {
   library: "Library",
   export: "Export",
   edited: "Edited",
+  menuHint: "Open, save, export and dark mode…",
 };
 
 export function uiStrings(langCode: string) {

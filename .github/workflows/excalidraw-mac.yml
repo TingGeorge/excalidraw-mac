@@ -88,6 +88,33 @@ jobs:
         working-directory: excalidraw-mac/web
         run: |
           set -euo pipefail
+          # VoiceOver sees the actions and recent files as buttons, not loose texts and icons.
+          cat > "$RUNNER_TEMP/a11y.applescript" <<'OSA'
+          tell application "System Events" to tell process "Excalidraw"
+            set buttons to {}
+            set texts to {}
+            repeat with e in (entire contents of front window)
+              try
+                set r to role of e
+                if r is "AXButton" then set end of buttons to (description of e)
+                if r is "AXStaticText" then set end of texts to (value of e)
+                if r is "AXImage" then set end of texts to ("image " & (description of e))
+              end try
+            end repeat
+            set AppleScript's text item delimiters to " | "
+            return "BUTTONS: " & (buttons as text) & linefeed & "TEXTS: " & (texts as text)
+          end tell
+          OSA
+          a11y() {
+            osascript "$RUNNER_TEMP/a11y.applescript" | tee "$RUNNER_TEMP/a11y.txt"
+            grep "^BUTTONS" "$RUNNER_TEMP/a11y.txt" | grep -q "New File…" || { echo "FAIL: New File… is not a button"; exit 1; }
+            grep "^BUTTONS" "$RUNNER_TEMP/a11y.txt" | grep -q "Open…" || { echo "FAIL: Open… is not a button"; exit 1; }
+            grep "^BUTTONS" "$RUNNER_TEMP/a11y.txt" | grep -q "diagram" || { echo "FAIL: the recent file is not a button"; exit 1; }
+            if grep "^TEXTS" "$RUNNER_TEMP/a11y.txt" | grep -Eq "New File…|move|sparkle|Document with"; then
+              echo "FAIL: row contents are exposed separately"; exit 1
+            fi
+            echo "PASS start screen accessibility"
+          }
           shot() { # name
             open -a "$APP" --env "EXCALIDRAW_MAC_HOME=$EXCALIDRAW_MAC_HOME"
             sleep 3
@@ -96,6 +123,7 @@ jobs:
             cat "$RUNNER_TEMP/$1.txt"
             grep -q "New File" "$RUNNER_TEMP/$1.txt" || { echo "FAIL: start screen not shown ($1)"; exit 1; }
             grep -q "diagram" "$RUNNER_TEMP/$1.txt" || { echo "FAIL: recent file missing ($1)"; exit 1; }
+            if [ "$1" = start-light ]; then a11y; fi
             pkill -TERM -x Excalidraw
             for i in $(seq 1 50); do pgrep -x Excalidraw >/dev/null || break; sleep 0.2; done
           }
@@ -108,9 +136,13 @@ jobs:
         if: always()
         run: |
           # Crop to the window (centred on screen) and keep it small.
-          for name in screen start-light start-dark; do
+          for name in screen start-light start-dark edit-pasted export-dialog canvas-dark canvas-small settings; do
             f="$RUNNER_TEMP/$name.png"; [ -f "$f" ] || continue
-            if [ "$name" = screen ]; then crop="880 1340"; size=760; else crop="560 860"; size=640; fi
+            case "$name" in
+              screen) crop="880 1340"; size=760 ;;
+              start-*) crop="560 860"; size=640 ;;
+              *) crop="1080 1920"; size=960 ;;
+            esac
             sips -c $crop "$f" --out "$RUNNER_TEMP/$name-crop.png" >/dev/null
             sips -Z $size -s format jpeg -s formatOptions 45 "$RUNNER_TEMP/$name-crop.png" --out "$RUNNER_TEMP/$name.jpg" >/dev/null
             ls -l "$RUNNER_TEMP/$name.jpg"

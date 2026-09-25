@@ -34,7 +34,9 @@
 .excalidraw .FixedSideContainer_side_top {
   top: 8px;
 }
-.excalidraw .App-menu_top__left {
+/* Only the menu button moves over for the traffic lights; the properties panel below it
+   stays on the 16 pt edge like the zoom and help buttons. */
+.excalidraw .App-menu_top__left > :first-child {
   margin-left: calc(var(--mac-menu-left) - var(--mac-edge));
 }
 .excalidraw .main-menu-trigger {
@@ -156,8 +158,8 @@
   top: 8px;
   left: calc(var(--mac-menu-left) + 36px + var(--mac-row-gap));
   height: 36px;
-  /* stays inside the left column of Excalidraw's top row, clear of the toolbar */
-  max-width: calc((100vw - 96px) / 4 + var(--mac-edge) - var(--mac-menu-left) - 36px - var(--mac-row-gap));
+  /* measured by the page: the room left of the toolbar (hidden when too narrow) */
+  max-width: var(--mac-title-room, 200px);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -181,6 +183,9 @@
   font-size: 11px;
   line-height: 14px;
   color: #86868b;
+}
+.mac-title.mac-hidden {
+  visibility: hidden;
 }
 .mac-title.dark {
   color: #ececf1;
@@ -217,4 +222,124 @@
 }
 .excalidraw.theme--dark .mac-top-actions button:hover {
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------------------------------------------------------------------------
+   Panels, menus and dialogs */
+
+/* Properties panel: a scrollbar never squeezes the content; with several shapes selected,
+   Align and Layers come first (they're what you want then). */
+.excalidraw .App-menu__left,
+.excalidraw .selected-shape-actions {
+  scrollbar-gutter: stable;
+}
+.excalidraw .panelColumn > fieldset:has(.buttonList > div[style*="flex-basis"]) {
+  order: -2;
+}
+.excalidraw .panelColumn:has(> fieldset .buttonList > div[style*="flex-basis"]) > fieldset:has(.zIndexButton) {
+  order: -1;
+}
+
+/* "No arrowhead" is a choice, not a disabled button: draw it like the others. */
+.excalidraw .iconSelectList svg g[opacity="0.3"],
+.excalidraw .picker-content svg g[opacity="0.3"] {
+  opacity: 0.85;
+}
+
+/* Menu group headings line up with the items' icons. */
+.excalidraw [data-testid="canvas-background-label"],
+.excalidraw .dropdown-menu-group-title,
+.excalidraw .dropdown-menu-container > div[style*="font-weight"] {
+  padding-left: 10px;
+}
+
+/* Dialogs: never under the title bar row, the same dimmed backdrop, a close button. */
+.excalidraw .Modal {
+  padding-top: 64px;
+}
+.excalidraw .Modal__background {
+  background-color: rgba(18, 18, 18, 0.28) !important;
+}
+.mac-dialog-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 5;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-on-surface, #1d1d1f);
+  background: rgba(0, 0, 0, 0.06);
+}
+.mac-dialog-close:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+.excalidraw.theme--dark .mac-dialog-close {
+  background: rgba(255, 255, 255, 0.1);
+}
+.excalidraw.theme--dark .mac-dialog-close:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Mermaid dialog: readable input, the ⌘↩ hint centred on the Insert button. */
+.excalidraw .ttd-dialog-input {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.excalidraw .ttd-dialog-panel-button-container,
+.excalidraw .ttd-dialog-submit-shortcut {
+  align-items: center;
+}
+
+/* Right-click menu: Mac menu text size, rounded, scrolls instead of running off screen. */
+.excalidraw .context-menu {
+  font-family: var(--ui-font);
+  font-size: 13px;
+  padding: 5px;
+  border-radius: 10px;
+  max-height: calc(100vh - 72px);
+  overflow-y: auto;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+.excalidraw .context-menu-item {
+  border-radius: 6px;
+  line-height: 20px;
+}
+.excalidraw .context-menu-item__label,
+.excalidraw .context-menu-item__shortcut {
+  font-size: 13px;
+}
+.excalidraw .context-menu-item__shortcut {
+  opacity: 0.55;
+}
+
+/* Empty canvas: "Help" and its "?" key sit together. */
+.excalidraw .welcome-screen-menu-item__shortcut {
+  margin-left: 16px;
+}
+
+/* Tooltips for icon buttons (see macPolish.ts). */
+.mac-tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: 280px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font: 12px/16px -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", system-ui, sans-serif;
+  color: #ffffff;
+  background: rgba(30, 30, 34, 0.94);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  white-space: nowrap;
+}
+.mac-tooltip.dark {
+  color: #1d1d1f;
+  background: rgba(236, 236, 241, 0.96);
 }

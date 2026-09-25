@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let store = Store()
     private var canvas: CanvasController?
     private var start: StartWindowController?
+    private var settings: SettingsWindowController?
     private var bridge: AppBridge?
     private var pendingFiles: [URL] = []
     private var sigterm: DispatchSourceSignal?
@@ -20,6 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         canvas.onDocumentChanged = { [weak self] in self?.showRightWindow() }
         // Only one window at a time: the drawing, or the start screen.
         canvas.onShow = { [weak self] in self?.start?.hide() }
+        canvas.onThemePreference = { [weak self] theme in
+            self?.store.setThemePreference(theme)
+            self?.settings?.select(theme: theme)
+        }
         self.canvas = canvas
         start = StartWindowController(
             store: store,
@@ -142,13 +147,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func openDocument(_ sender: Any?) { canvas?.openDocument() }
     @objc func saveDocument(_ sender: Any?) { canvas?.save() }
     @objc func saveDocumentAs(_ sender: Any?) { canvas?.saveAs() }
-    @objc func exportPNG(_ sender: Any?) { canvas?.exportImage(format: "png") }
-    @objc func exportSVG(_ sender: Any?) { canvas?.exportImage(format: "svg") }
+    @objc func exportImage(_ sender: Any?) { canvas?.openExportDialog() }
+    @objc func zoomIn(_ sender: Any?) { canvas?.view("zoomIn") }
+    @objc func zoomOut(_ sender: Any?) { canvas?.view("zoomOut") }
+    @objc func actualSize(_ sender: Any?) { canvas?.view("actualSize") }
+    @objc func zoomToFit(_ sender: Any?) { canvas?.view("zoomToFit") }
+    @objc func toggleDarkMode(_ sender: Any?) { canvas?.view("toggleTheme") }
+    @objc func toggleLibrary(_ sender: Any?) { canvas?.view("toggleLibrary") }
+
+    @objc func showSettings(_ sender: Any?) {
+        if settings == nil {
+            settings = SettingsWindowController(
+                onTheme: { [weak self] theme in
+                    self?.store.setThemePreference(theme)
+                    self?.canvas?.setThemePreference(theme)
+                },
+                onAgentSetup: { [weak self] in self?.showAgentSetup(nil) })
+        }
+        settings?.show(theme: store.themePreference)
+    }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
-        case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)), #selector(exportPNG(_:)),
-            #selector(exportSVG(_:)):
+        case #selector(toggleDarkMode(_:)):
+            menuItem.state = canvas?.window.appearance?.name == .darkAqua ? .on : .off
+            return canvas?.hasDocument == true
+        case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)), #selector(exportImage(_:)),
+            #selector(zoomIn(_:)), #selector(zoomOut(_:)), #selector(actualSize(_:)), #selector(zoomToFit(_:)),
+            #selector(toggleLibrary(_:)):
             return canvas?.hasDocument == true
         default:
             return true
@@ -234,6 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         submenu("Excalidraw", [
             item(t("About Excalidraw", "關於 Excalidraw"), #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
             .separator(),
+            item(t("Settings…", "設定…"), #selector(showSettings(_:)), ",", target: self),
             item(t("Connect an AI Agent (MCP)…", "連接 AI Agent（MCP）…"), #selector(showAgentSetup(_:)), target: self),
             .separator(),
             item(t("Hide Excalidraw", "隱藏 Excalidraw"), #selector(NSApplication.hide(_:)), "h"),
@@ -250,10 +277,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item(t("Save", "儲存"), #selector(saveDocument(_:)), "s", target: self),
             item(t("Save As…", "另存新檔…"), #selector(saveDocumentAs(_:)), "s", [.command, .shift], target: self),
             .separator(),
-            item(t("Export as PNG…", "匯出為 PNG…"), #selector(exportPNG(_:)), target: self),
-            item(t("Export as SVG…", "匯出為 SVG…"), #selector(exportSVG(_:)), target: self),
+            // Excalidraw's export dialog: preview, PNG / SVG / clipboard, background, dark mode, scale.
+            item(t("Export Image…", "匯出圖片…"), #selector(exportImage(_:)), "e", [.command, .shift], target: self),
         ])
-        // Standard responder actions: WKWebView passes them to the page (text editing, copy/paste of shapes).
+        // Standard responder actions. In the drawing window they act on the canvas (its undo
+        // history and clipboard, see CanvasContainerView), or on the text being typed.
         submenu(t("Edit", "編輯"), [
             item(t("Undo", "還原"), Selector(("undo:")), "z"),
             item(t("Redo", "重做"), Selector(("redo:")), "z", [.command, .shift]),
@@ -264,6 +292,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item(t("Select All", "全選"), #selector(NSText.selectAll(_:)), "a"),
         ])
         submenu(t("View", "顯示方式"), [
+            item(t("Zoom In", "放大"), #selector(zoomIn(_:)), "+", target: self),
+            item(t("Zoom Out", "縮小"), #selector(zoomOut(_:)), "-", target: self),
+            item(t("Actual Size", "實際大小"), #selector(actualSize(_:)), "0", target: self),
+            item(t("Zoom to Fit", "縮放至符合畫面"), #selector(zoomToFit(_:)), target: self),
+            .separator(),
+            item(t("Dark Mode", "深色模式"), #selector(toggleDarkMode(_:)), target: self),
+            item(t("Library", "素材庫"), #selector(toggleLibrary(_:)), target: self),
+            .separator(),
             item(t("Enter Full Screen", "進入全螢幕"), #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
         ])
         let window = submenu(t("Window", "視窗"), [

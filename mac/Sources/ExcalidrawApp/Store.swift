@@ -21,6 +21,7 @@ final class Store {
     /// The drawing open in this session (nil = start screen).
     private(set) var currentFile: URL?
     private(set) var dirty = false
+    /// "light" / "dark", or nil to follow the system.
     private var theme: String?
     private(set) var recentFiles: [URL] = []
     /// A file that was open with unsaved changes when the app was last killed.
@@ -104,11 +105,17 @@ final class Store {
         }
     }
 
+    /// "system", "light" or "dark" (Settings, the View menu, Excalidraw's own menu).
+    var themePreference: String { theme ?? "system" }
+
+    func setThemePreference(_ value: String) {
+        let theme = value == "light" || value == "dark" ? value : nil
+        guard theme != self.theme else { return }
+        self.theme = theme
+        persistState()
+    }
+
     func saveAutosave(scene: String, theme: String?) {
-        if let theme, theme != self.theme {
-            self.theme = theme
-            persistState()
-        }
         guard currentFile != nil else { return }
         let url = autosaveURL
         io.async { try? Data(scene.utf8).write(to: url, options: .atomic) }
@@ -129,7 +136,7 @@ final class Store {
     func sessionJSON() -> Data {
         flush()
         let library = Self.validJSON(at: libraryURL) ?? "null"
-        let themeJSON = theme.map { JSON.string($0).text } ?? "null"
+        let themeJSON = JSON.string(themePreference).text
         return Data("{\"scene\":null,\"theme\":\(themeJSON),\"dirty\":false,\"library\":\(library)}".utf8)
     }
 

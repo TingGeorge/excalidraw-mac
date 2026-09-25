@@ -74,6 +74,13 @@ final class AppBridge {
                     "trafficLightsStart": .double(
                         Double(canvas.window.standardWindowButton(.closeButton).map { $0.convert($0.bounds, to: nil).minX } ?? -1)),
                     "trafficLightsEnd": .double(Double(canvas.trafficLightsEnd)),
+                    // Middle of the traffic lights, from the top of the window (the row's middle is 26).
+                    "trafficLightsMiddle": .double(
+                        Double(
+                            canvas.window.standardWindowButton(.closeButton).map {
+                                frame.height - $0.convert($0.bounds, to: nil).midY
+                            } ?? -1)),
+                    "appearance": .string(canvas.window.effectiveAppearance.name == .darkAqua ? "dark" : "light"),
                     // Only one of the drawing window and the start screen should ever show.
                     "visibleWindows": .int(NSApp.windows.filter { $0.isVisible && !($0 is NSPanel) }.count),
                 ]))

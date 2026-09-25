@@ -48,7 +48,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         // The canvas fills the whole window, title bar included: the page puts its menu button,
         // the file name, the tools, Library and Export in the traffic lights' row (see mac.css).
         // A transparent layer over that row drags the window wherever there is no button.
-        let container = NSView(frame: webView.frame)
+        let container = CanvasContainerView(frame: webView.frame)
         webView.autoresizingMask = [.width, .height]
         container.addSubview(webView)
         dragArea.frame = NSRect(
@@ -57,18 +57,21 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         dragArea.autoresizingMask = [.width, .minYMargin]
         container.addSubview(dragArea)
         window.contentView = container
+        container.controller = self
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.backgroundColor = .textBackgroundColor
         window.delegate = self
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        // Narrower than this and Excalidraw switches to its phone layout.
-        window.minSize = NSSize(width: 820, height: 500)
+        // The smallest size where the title bar row (menu, file name, tools, Library / Export)
+        // fits in one line and the properties panel doesn't need to scroll much.
+        window.minSize = NSSize(width: 960, height: 600)
         window.center()
         _ = window.setFrameAutosaveName("ExcalidrawMainWindow")
         window.isRestorable = false
         positionTrafficLights()
+        watchTrafficLights()
         updateTitle()
         webView.load(URLRequest(url: SchemeHandler.startURL))
     }
@@ -83,24 +86,25 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     /// Moves the traffic lights down so they are centred in the 52 pt row the page's top bar
-    /// uses (the same thing Electron's `trafficLightPosition` does). AppKit lays the title bar
-    /// out again on resize and full screen changes, so this runs after those too.
+    /// uses (the same thing Electron's `trafficLightPosition` does).
     private func positionTrafficLights() {
-        guard !window.styleMask.contains(.fullScreen),
+        guard !positioningTrafficLights, !window.styleMask.contains(.fullScreen),
             let close = window.standardWindowButton(.closeButton),
             let mini = window.standardWindowButton(.miniaturizeButton),
             let zoom = window.standardWindowButton(.zoomButton),
             let titlebar = close.superview?.superview
         else { return }
+        positioningTrafficLights = true
+        defer { positioningTrafficLights = false }
         var frame = titlebar.frame
         frame.size.height = Self.titlebarHeight
         frame.origin.y = window.frame.height - Self.titlebarHeight
-        titlebar.frame = frame
-        let spacing = mini.frame.minX - close.frame.minX
+        if titlebar.frame != frame { titlebar.frame = frame }
+        let spacing = Self.trafficLightSpacing
         for (index, button) in [close, mini, zoom].enumerated() {
-            button.setFrameOrigin(
-                NSPoint(
-                    x: Self.edgeInset + CGFloat(index) * spacing, y: (Self.titlebarHeight - button.frame.height) / 2))
+            let origin = NSPoint(
+                x: Self.edgeInset + CGFloat(index) * spacing, y: ((Self.titlebarHeight - button.frame.height) / 2).rounded())
+            if button.frame.origin != origin { button.setFrameOrigin(origin) }
         }
         let end = zoom.convert(zoom.bounds, to: nil).maxX
         if end != trafficLightsEnd {
@@ -109,6 +113,32 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         }
     }
 
+    private var positioningTrafficLights = false
+    private var watchedTitlebarViews: [ObjectIdentifier: NSObjectProtocol] = [:]
+
+    /// AppKit lays the title bar out again on its own: on resize, on full screen changes, when
+    /// the window becomes key and when the appearance (light / dark) changes. Each time it puts
+    /// the buttons back at the top of a 28 pt title bar, half outside our 52 pt row. So watch
+    /// the buttons and the title bar and put them back right away, before anything is drawn.
+    private func watchTrafficLights() {
+        guard let close = window.standardWindowButton(.closeButton) else { return }
+        let views = [
+            close, window.standardWindowButton(.miniaturizeButton), window.standardWindowButton(.zoomButton),
+            close.superview, close.superview?.superview,
+        ].compactMap { $0 }
+        for view in views where watchedTitlebarViews[ObjectIdentifier(view)] == nil {
+            view.postsFrameChangedNotifications = true
+            watchedTitlebarViews[ObjectIdentifier(view)] = NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification, object: view, queue: nil
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.positionTrafficLights() }
+            }
+        }
+    }
+
+    /// Standard distance between the traffic lights (close → minimise → zoom).
+    private static let trafficLightSpacing: CGFloat = 20
+
     /// Distance of the traffic lights (and everything else) from the window edges, in points.
     static let edgeInset: CGFloat = 16
     /// Where the traffic lights end; the page lays out its menu button from here.
@@ -116,10 +146,24 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
 
     func windowDidResize(_ notification: Notification) { positionTrafficLights() }
     func windowDidBecomeKey(_ notification: Notification) { positionTrafficLights() }
+    func windowDidResignKey(_ notification: Notification) { positionTrafficLights() }
     func windowDidEnterFullScreen(_ notification: Notification) { sendDocumentInfo() }
     func windowDidExitFullScreen(_ notification: Notification) {
+        watchTrafficLights()
         positionTrafficLights()
         sendDocumentInfo()
+    }
+
+    /// Light / dark: only touch the window when it actually changes (every change makes AppKit
+    /// lay out the title bar again).
+    private func applyAppearance(dark: Bool, background: NSColor?) {
+        let name: NSAppearance.Name = dark ? .darkAqua : .aqua
+        if window.appearance?.name != name {
+            window.appearance = NSAppearance(named: name)
+            positionTrafficLights()
+            DispatchQueue.main.async { self.positionTrafficLights() }
+        }
+        if let background, window.backgroundColor != background { window.backgroundColor = background }
     }
 
     // MARK: Calling the page
@@ -183,23 +227,17 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             dragArea.holes = rects.compactMap { r in
                 r.count == 4 ? NSRect(x: r[0], y: r[1], width: r[2], height: r[3]) : nil
             }
-        case "exportMenu":
-            let x = body["x"] as? Double ?? 0
-            let y = body["y"] as? Double ?? 0
-            let menu = NSMenu()
-            for (title, format) in [
-                (L10n.t("Export as PNG…", "匯出為 PNG…"), "png"), (L10n.t("Export as SVG…", "匯出為 SVG…"), "svg"),
-            ] {
-                menu.addItem(ClosureMenuItem(title: title) { [weak self] in self?.exportImage(format: format) })
-            }
-            // WKWebView is flipped: page coordinates map directly.
-            menu.popUp(positioning: nil, at: NSPoint(x: x, y: y), in: webView)
         case "appearance":
-            let dark = (body["theme"] as? String) == "dark"
-            window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-            if let hex = body["background"] as? String, let color = NSColor(hex: hex) {
-                window.backgroundColor = color
-            }
+            applyAppearance(
+                dark: (body["theme"] as? String) == "dark",
+                background: (body["background"] as? String).flatMap { NSColor(hex: $0) })
+        case "themePreference":
+            if let value = body["value"] as? String { onThemePreference?(value) }
+        case "editState":
+            editState = EditState(
+                textEditing: body["textEditing"] as? Bool ?? false, canUndo: body["canUndo"] as? Bool ?? false,
+                canRedo: body["canRedo"] as? Bool ?? false, hasSelection: body["hasSelection"] as? Bool ?? false)
+            (webView as? CanvasWebView)?.textEditing = editState.textEditing
         case "menu":
             switch body["action"] as? String {
             case "new": createDocument()
@@ -448,34 +486,108 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         }
     }
 
-    func exportImage(format: String) {
+    /// File > Export Image…: Excalidraw's export dialog (preview, PNG / SVG / clipboard,
+    /// background, dark mode, scale). Its files are named after the drawing.
+    func openExportDialog() {
         guard hasDocument else { return }
-        call("export_image", ["format": .string(format), "scale": 2, "background": true]) { result in
-            switch result {
-            case .failure(let error):
-                self.showError(error)
-            case .success(let reply):
-                let data =
-                    format == "svg"
-                    ? reply["text"]?.string.map { Data($0.utf8) }
-                    : reply["base64"]?.string.flatMap { Data(base64Encoded: $0) }
-                guard let data else { return }
-                let panel = NSSavePanel()
-                panel.allowedContentTypes = [format == "svg" ? .svg : .png]
-                panel.canCreateDirectories = true
-                panel.directoryURL = self.store.currentFile?.deletingLastPathComponent()
-                let base = self.store.currentFile?.deletingPathExtension().lastPathComponent ?? "Excalidraw"
-                panel.nameFieldStringValue = "\(base).\(format)"
-                panel.beginSheetModal(for: self.window) { response in
-                    guard response == .OK, let url = panel.url else { return }
-                    do {
-                        try data.write(to: url, options: .atomic)
-                    } catch {
-                        self.showError(BridgeError(error.localizedDescription))
+        show()
+        call("open_export_dialog") { _ in }
+    }
+
+    /// View menu commands (zoom, dark mode, library).
+    func view(_ action: String) {
+        guard hasDocument else { return }
+        call("view", ["action": .string(action)]) { _ in }
+    }
+
+    /// Theme picked in Settings: "system", "light" or "dark".
+    func setThemePreference(_ preference: String) {
+        call("set_theme_preference", ["preference": .string(preference)]) { _ in }
+    }
+
+    /// Called when the user picks light / dark in the page (Excalidraw's menu, the View menu).
+    var onThemePreference: ((String) -> Void)?
+
+    // MARK: Edit menu
+    //
+    // Undo / Redo / Cut / Copy / Paste / Select All act on the canvas (Excalidraw's history and
+    // clipboard), and on the text while a text field in the page has the keyboard.
+
+    struct EditState {
+        var textEditing = false
+        var canUndo = false
+        var canRedo = false
+        var hasSelection = false
+    }
+
+    private(set) var editState = EditState()
+
+    func validateEdit(_ item: NSMenuItem) -> Bool {
+        guard hasDocument else { return false }
+        if editState.textEditing, let undo = webView.undoManager {
+            // Typing in a text field: its own undo ("Undo Typing").
+            switch item.action {
+            case #selector(CanvasContainerView.undo(_:)):
+                item.title = undo.undoMenuItemTitle
+                return undo.canUndo
+            case #selector(CanvasContainerView.redo(_:)):
+                item.title = undo.redoMenuItemTitle
+                return undo.canRedo
+            default:
+                return true
+            }
+        }
+        switch item.action {
+        case #selector(CanvasContainerView.undo(_:)):
+            item.title = L10n.t("Undo", "還原")
+            return editState.canUndo
+        case #selector(CanvasContainerView.redo(_:)):
+            item.title = L10n.t("Redo", "重做")
+            return editState.canRedo
+        case #selector(NSText.cut(_:)), #selector(NSText.copy(_:)):
+            return editState.hasSelection
+        default:
+            return true
+        }
+    }
+
+    /// Runs an Edit menu command on the canvas. `fallback` is the standard action, used when a
+    /// text field in the page turns out to have the keyboard.
+    func edit(_ action: String, fallback: Selector, sender: Any?) {
+        var params: [String: JSON] = ["action": .string(action)]
+        if action == "paste" {
+            let pasteboard = NSPasteboard.general
+            if let text = pasteboard.string(forType: .string) { params["text"] = .string(text) }
+            if let png = Self.pngFromPasteboard(pasteboard) { params["image"] = .string(png.base64EncodedString()) }
+        }
+        call("edit", .object(params)) { result in
+            guard case .success(let reply) = result else { return }
+            if reply["native"]?.bool == true {
+                (self.webView as? CanvasWebView)?.performStandard(fallback, sender: sender)
+                return
+            }
+            if let clipboard = reply["clipboard"]?.object, !clipboard.isEmpty {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                for (type, value) in clipboard {
+                    guard let text = value.string else { continue }
+                    switch type {
+                    case "text/plain": pasteboard.setString(text, forType: .string)
+                    case "text/html": pasteboard.setString(text, forType: .html)
+                    default: break
                     }
                 }
             }
         }
+    }
+
+    private static func pngFromPasteboard(_ pasteboard: NSPasteboard) -> Data? {
+        if let png = pasteboard.data(forType: .png) { return png }
+        guard pasteboard.string(forType: .string) == nil,  // text wins over e.g. a rich text snapshot
+            let image = NSImage(pasteboard: pasteboard), let tiff = image.tiffRepresentation,
+            let bitmap = NSBitmapImageRep(data: tiff)
+        else { return nil }
+        return bitmap.representation(using: .png, properties: [:])
     }
 
     /// Writes the recovery copy (when the app is killed). Gives up after 3 s so a stuck page
@@ -608,8 +720,56 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
 }
 
 /// The page's web view. It never moves the window itself (the drag area does that).
-private final class CanvasWebView: WKWebView {
+///
+/// While the canvas has the keyboard it passes the Edit menu's actions on to its container
+/// (the canvas does them); while a text field in the page has it, WebKit does them as usual.
+final class CanvasWebView: WKWebView {
     override var mouseDownCanMoveWindow: Bool { false }
+
+    var textEditing = false
+    private var standardAction: Selector?
+
+    static let editActions: Set<Selector> = [
+        Selector(("undo:")), Selector(("redo:")), #selector(NSText.cut(_:)), #selector(NSText.copy(_:)),
+        #selector(NSText.paste(_:)), #selector(NSText.selectAll(_:)),
+    ]
+
+    override func responds(to selector: Selector!) -> Bool {
+        if let selector, Self.editActions.contains(selector), !textEditing, standardAction != selector { return false }
+        return super.responds(to: selector)
+    }
+
+    /// Runs WebKit's own version of an Edit menu action (text editing).
+    func performStandard(_ action: Selector, sender: Any?) {
+        standardAction = action
+        defer { standardAction = nil }
+        if super.responds(to: action) {
+            NSApp.sendAction(action, to: self, from: sender)
+        } else if action == Selector(("undo:")) {
+            undoManager?.undo()
+        } else if action == Selector(("redo:")) {
+            undoManager?.redo()
+        }
+    }
+}
+
+/// Holds the web view and the title bar drag area, and does the Edit menu's actions for the
+/// canvas (they reach it when the web view passes them on, see CanvasWebView).
+final class CanvasContainerView: NSView, NSMenuItemValidation {
+    weak var controller: CanvasController?
+
+    @objc func undo(_ sender: Any?) { controller?.edit("undo", fallback: #selector(undo(_:)), sender: sender) }
+    @objc func redo(_ sender: Any?) { controller?.edit("redo", fallback: #selector(redo(_:)), sender: sender) }
+    @objc func cut(_ sender: Any?) { controller?.edit("cut", fallback: #selector(NSText.cut(_:)), sender: sender) }
+    @objc func copy(_ sender: Any?) { controller?.edit("copy", fallback: #selector(NSText.copy(_:)), sender: sender) }
+    @objc func paste(_ sender: Any?) { controller?.edit("paste", fallback: #selector(NSText.paste(_:)), sender: sender) }
+    @objc func selectAll(_ sender: Any?) {
+        controller?.edit("selectAll", fallback: #selector(NSText.selectAll(_:)), sender: sender)
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        controller?.validateEdit(menuItem) ?? false
+    }
 }
 
 /// Covers the title bar row. Clicks on the page's buttons there (the "holes" the page reports)

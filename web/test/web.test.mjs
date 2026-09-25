@@ -238,3 +238,221 @@ test("restores the saved session", async (t) => {
   await waitFor(() => h.messages.some((m) => m.type === "dirty" && m.value === true), 3000, "dirty");
   assert.deepEqual(h.external, []);
 });
+
+// The items of the UI/UX report (H1, M2, M3, M6–M8, M11, M12, L1, L3, L4, L7–L11) and the
+// page side of the Edit menu (H3).
+test("macOS polish", async (t) => {
+  const h = await startHarness({ lang: "en" });
+  t.after(() => h.close());
+  const p = h.page;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const esc = async () => {
+    await p.keyboard.press("Escape");
+    await wait(300);
+  };
+  ok(await h.call("set_document_info", { name: "uiux_test", folder: "~/Desktop", trafficLightsEnd: 70 }));
+  ok(await h.call("add_elements", { elements: [
+    { type: "rectangle", id: "r", x: 0, y: 0, width: 200, height: 90, label: { text: "Box 你好" } },
+    { type: "ellipse", id: "e", x: 320, y: 0, width: 160, height: 90 },
+    { type: "arrow", id: "a", start: { id: "r" }, end: { id: "e" } },
+  ] }));
+  const count = async () => ok(await h.call("get_scene")).elementCount;
+
+  await t.test("menu: Mac shortcut symbols, an icon on every item, headings aligned (L1, L7)", async () => {
+    await p.click(".main-menu-trigger");
+    await wait(300);
+    const menu = await p.evaluate(() => ({
+      shortcuts: [...document.querySelectorAll(".dropdown-menu-item__shortcut")].map((e) => e.textContent),
+      noIcon: [...document.querySelectorAll(".dropdown-menu-item")].filter((e) => !e.querySelector("svg")).map((e) => e.textContent),
+      heading: document.querySelector('[data-testid="canvas-background-label"]')?.getBoundingClientRect().x
+        + parseFloat(getComputedStyle(document.querySelector('[data-testid="canvas-background-label"]')).paddingLeft),
+      text: document.querySelector(".dropdown-menu-item__text")?.getBoundingClientRect().x,
+      icon: document.querySelector(".dropdown-menu-item__icon")?.getBoundingClientRect().x,
+    }));
+    assert.ok(menu.shortcuts.includes("⌘N") && menu.shortcuts.includes("⇧⌘S"), menu.shortcuts.join(" "));
+    assert.ok(menu.shortcuts.every((s) => !/Ctrl|Cmd|Shift|Alt|Option|\+/.test(s)), menu.shortcuts.join(" "));
+    assert.deepEqual(menu.noIcon, []);
+    assert.ok(Math.abs(menu.heading - menu.icon) <= 1, `heading ${menu.heading}, icons ${menu.icon}`);
+    await esc();
+  });
+
+  await t.test("command palette opens, with Mac key caps and no stray close button (H1)", async () => {
+    await p.mouse.move(640, 500);
+    await p.keyboard.press("Control+/");
+    await waitFor(() => p.evaluate(() => !!document.querySelector(".command-palette-dialog")), 3000, "palette");
+    await wait(300);
+    const palette = await p.evaluate(() => ({
+      keys: [...document.querySelectorAll(".command-palette-dialog .shortcut-key")].map((e) => e.textContent),
+      close: !!document.querySelector(".Modal:has(.command-palette-dialog) .mac-dialog-close, .command-palette-dialog .mac-dialog-close"),
+      items: [...document.querySelectorAll(".command-palette-dialog .command-item")].map((e) => e.textContent),
+    }));
+    assert.ok(palette.keys.length > 5);
+    assert.ok(palette.keys.every((k) => !/^(Ctrl|Cmd|Shift|Alt)$/.test(k)), palette.keys.join(" "));
+    assert.equal(palette.close, false);
+    assert.ok(palette.items.some((i) => i.startsWith("Save As")), "the app's own commands are in it");
+    await esc();
+  });
+
+  await t.test("dialogs: a close button, Help starts on it, room under the title bar (M3, M11, L3)", async () => {
+    await p.keyboard.press("Shift+?");
+    await waitFor(() => p.evaluate(() => !!document.querySelector(".HelpDialog")), 3000, "help");
+    await wait(300);
+    const help = await p.evaluate(() => ({
+      focus: document.activeElement?.className,
+      top: document.querySelector(".Modal__content").getBoundingClientRect().top,
+      keys: [...document.querySelectorAll(".HelpDialog__key")].map((e) => e.textContent),
+    }));
+    assert.equal(help.focus, "mac-dialog-close");
+    assert.ok(help.top >= 60, `dialog top ${help.top}`);
+    assert.ok(help.keys.every((k) => !/^(Ctrl|Cmd|Shift|Alt|Option)$/.test(k)), help.keys.join(" "));
+    await p.click(".mac-dialog-close");
+    await waitFor(() => p.evaluate(() => !document.querySelector(".HelpDialog")), 3000, "help closed");
+    await p.click(".mac-export");
+    await waitFor(() => p.evaluate(() => !!document.querySelector(".ImageExportModal")), 3000, "export dialog");
+    assert.ok(await p.evaluate(() => !!document.querySelector(".Modal__content .mac-dialog-close")));
+    await p.click(".mac-dialog-close");
+    await waitFor(() => p.evaluate(() => !document.querySelector(".ImageExportModal")), 3000, "export closed");
+  });
+
+  await t.test("exported files are named after the drawing (M2)", async () => {
+    assert.equal(ok(await h.call("diagnostics")).exportName, "uiux_test");
+  });
+
+  await t.test("properties panel on the 16 pt edge; Align first when several are selected (M6, M8)", async () => {
+    await p.mouse.click(640, 700);
+    await p.keyboard.press("Control+a");
+    await wait(400);
+    const panel = await p.evaluate(() => {
+      const col = document.querySelector(".App-menu__left");
+      const first = [...col.querySelectorAll(".panelColumn > *")]
+        .filter((e) => e.getClientRects().length)
+        .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0];
+      return { x: col.getBoundingClientRect().x, first: first.querySelector("legend, h3")?.textContent };
+    });
+    assert.equal(panel.x, 16);
+    assert.equal(panel.first, "Align");
+  });
+
+  await t.test("right-click menu: 13 px text, Mac shortcuts (M12)", async () => {
+    await p.mouse.click(640, 600, { button: "right" });
+    await waitFor(() => p.evaluate(() => !!document.querySelector(".context-menu")), 3000, "context menu");
+    const menu = await p.evaluate(() => ({
+      size: getComputedStyle(document.querySelector(".context-menu-item__label")).fontSize,
+      shortcuts: [...document.querySelectorAll(".context-menu-item__shortcut")].map((e) => e.textContent).filter(Boolean),
+    }));
+    assert.equal(menu.size, "13px");
+    assert.ok(menu.shortcuts.every((s) => !/Ctrl|Cmd|Shift|Alt|Option|\+/.test(s)), menu.shortcuts.join(" "));
+    await esc();
+  });
+
+  await t.test("more tools: the Generate heading lines up with the items (L8)", async () => {
+    await p.click(".App-toolbar__extra-tools-trigger");
+    await wait(300);
+    const x = await p.evaluate(() => {
+      const g = [...document.querySelectorAll(".dropdown-menu-container div")].find((d) => d.textContent === "Generate");
+      const icon = document.querySelector(".dropdown-menu-container .dropdown-menu-item__icon");
+      return [g.getBoundingClientRect().x + parseFloat(getComputedStyle(g).paddingLeft), icon.getBoundingClientRect().x];
+    });
+    assert.ok(Math.abs(x[0] - x[1]) <= 1, `heading ${x[0]}, icons ${x[1]}`);
+    await esc();
+  });
+
+  await t.test("tooltips on icon buttons (M7)", async () => {
+    await p.mouse.click(640, 700);
+    await p.hover('.ToolIcon:has([data-testid="toolbar-rectangle"])');
+    await waitFor(() => p.evaluate(() => document.querySelector(".mac-tooltip")?.style.opacity === "1"), 3000, "tooltip");
+    assert.match(await p.evaluate(() => document.querySelector(".mac-tooltip").textContent), /Rectangle — R/);
+    for (const sel of [".main-menu-trigger", ".mac-library", ".mac-export", ".App-toolbar__extra-tools-trigger"]) {
+      assert.ok(await p.evaluate((s) => !!document.querySelector(s)?.dataset.macTip, sel), `${sel} has a tooltip`);
+    }
+    await p.mouse.move(640, 700);
+  });
+
+  await t.test("no-arrowhead button is not drawn as disabled (L11)", async () => {
+    await p.mouse.click(640, 700);
+    await p.mouse.click(660, 400); // the arrow
+    await waitFor(() => p.evaluate(() => !!document.querySelector(".iconSelectList")), 3000, "arrowheads");
+    const opacity = await p.evaluate(() => getComputedStyle(document.querySelector('.iconSelectList svg g[opacity="0.3"]')).opacity);
+    assert.ok(Number(opacity) >= 0.8, `opacity ${opacity}`);
+    await p.mouse.click(640, 700);
+  });
+
+  await t.test("the file name never runs under the tools (M1)", async () => {
+    await p.setViewportSize({ width: 960, height: 600 });
+    await wait(400);
+    const r = await p.evaluate(() => ({
+      title: document.querySelector(".mac-title").getBoundingClientRect(),
+      hidden: document.querySelector(".mac-title").classList.contains("mac-hidden"),
+      toolbar: document.querySelector(".App-toolbar").getBoundingClientRect(),
+    }));
+    assert.ok(r.hidden || r.title.right <= r.toolbar.left - 8, `title ends ${r.title.right}, tools start ${r.toolbar.left}`);
+    await p.setViewportSize({ width: 1280, height: 800 });
+    await wait(300);
+  });
+
+  await t.test("Edit menu on the canvas: select all, copy, paste, undo (H3)", async () => {
+    await p.mouse.click(640, 700);
+    const before = await count();
+    ok(await h.call("edit", { action: "selectAll" }));
+    await wait(200);
+    await waitFor(() => h.messages.filter((m) => m.type === "editState").at(-1)?.hasSelection, 3000, "selection reported");
+    const copied = ok(await h.call("edit", { action: "copy" }));
+    const text = copied.clipboard["text/plain"];
+    assert.match(text, /"type":\s*"excalidraw\/clipboard"/);
+    await p.mouse.move(640, 600);
+    ok(await h.call("edit", { action: "paste", text }));
+    await waitFor(async () => (await count()) === before * 2, 3000, `pasted (${await count()} of ${before * 2})`);
+    const state = h.messages.filter((m) => m.type === "editState").at(-1);
+    assert.equal(state.canUndo, true);
+    ok(await h.call("edit", { action: "undo" }));
+    await waitFor(async () => (await count()) === before, 3000, "undone");
+    ok(await h.call("edit", { action: "redo" }));
+    await waitFor(async () => (await count()) === before * 2, 3000, "redone");
+    ok(await h.call("edit", { action: "undo" }));
+    await waitFor(async () => (await count()) === before, 3000, "undone again");
+  });
+
+  await t.test("Edit menu while typing: WebKit's own text editing (H3)", async () => {
+    await p.evaluate(() => {
+      const input = document.createElement("textarea");
+      input.id = "probe";
+      document.body.appendChild(input);
+      input.focus();
+    });
+    assert.deepEqual(ok(await h.call("edit", { action: "copy" })), { native: true });
+    await waitFor(() => h.messages.filter((m) => m.type === "editState").at(-1)?.textEditing === true, 3000, "typing reported");
+    await p.evaluate(() => document.getElementById("probe").remove());
+    await waitFor(() => h.messages.filter((m) => m.type === "editState").at(-1)?.textEditing === false, 3000, "typing done");
+  });
+
+  await t.test("View menu: zoom and dark mode; export follows the theme (L2, L4)", async () => {
+    ok(await h.call("view", { action: "actualSize" }));
+    await wait(200);
+    const z0 = await p.evaluate(() => document.querySelector(".zoom-actions .reset-zoom-button")?.textContent);
+    ok(await h.call("view", { action: "zoomIn" }));
+    await wait(200);
+    const z1 = await p.evaluate(() => document.querySelector(".zoom-actions .reset-zoom-button")?.textContent);
+    assert.notEqual(z0, z1, `zoom ${z0} -> ${z1}`);
+    ok(await h.call("view", { action: "actualSize" }));
+    await wait(200);
+    assert.equal(await p.evaluate(() => document.querySelector(".zoom-actions .reset-zoom-button")?.textContent), "100%");
+    ok(await h.call("view", { action: "toggleTheme" }));
+    await waitFor(() => h.messages.some((m) => m.type === "themePreference" && m.value === "dark"), 3000, "preference sent");
+    const s = ok(await h.call("get_scene"));
+    assert.equal(s.theme, "dark");
+    await waitFor(async () => ok(await h.call("diagnostics")).exportWithDarkMode === true, 3000, "dark export");
+    ok(await h.call("set_theme_preference", { preference: "light" }));
+    await waitFor(async () => ok(await h.call("get_scene")).theme === "light", 3000, "light again");
+  });
+
+  await t.test("agents' hand-drawn text uses Excalifont (Chinese falls back to Xiaolai) (L10)", async () => {
+    const res = ok(await h.call("add_elements", { elements: [{ type: "text", id: "zh", x: 0, y: 300, text: "你好 hello", fontFamily: 1 }] }));
+    const el = JSON.parse(ok(await h.call("get_scene_json")).json).elements.find((e) => e.id === "zh");
+    assert.equal(el.fontFamily, 5, JSON.stringify(res));
+  });
+
+  await t.test("offline and no page errors", () => {
+    assert.deepEqual(h.external, []);
+    assert.deepEqual(h.errors, []);
+  });
+});

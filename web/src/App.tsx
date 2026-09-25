@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  CaptureUpdateAction,
+  CommandPalette,
   Excalidraw,
   MainMenu,
   WelcomeScreen,
@@ -7,7 +9,20 @@ import {
   useHandleLibrary,
 } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import { displayedBackground, doc, flushAutosave, installBridge, scheduleAutosave, setDirty } from "./bridge";
+import {
+  displayedBackground,
+  doc,
+  flushAutosave,
+  installBridge,
+  noteThemeChange,
+  scheduleAutosave,
+  setDirty,
+  setThemePreference,
+  themeState,
+  watchEditState,
+  watchSystemAppearance,
+} from "./bridge";
+import { installMacPolish } from "./macPolish";
 import { uiStrings } from "./i18n";
 import { postNative, type Session } from "./native";
 
@@ -30,6 +45,14 @@ function useTitlebarHoles() {
         .map((e) => e.getBoundingClientRect())
         .filter((r) => r.width > 0 && r.height > 0 && r.top < TITLEBAR_HEIGHT)
         .map((r) => [r.x, r.y, r.width, r.height].map(Math.round));
+      // The file name gets the room left of the toolbar (and hides when there is too little).
+      const toolbar = document.querySelector(".App-toolbar")?.getBoundingClientRect();
+      const title = document.querySelector<HTMLElement>(".mac-title");
+      if (toolbar && title) {
+        const room = Math.floor(toolbar.left - title.getBoundingClientRect().left - 12);
+        document.documentElement.style.setProperty("--mac-title-room", `${Math.max(0, room)}px`);
+        title.classList.toggle("mac-hidden", room < 48);
+      }
       const key = JSON.stringify(rects);
       if (key !== last) {
         last = key;
@@ -53,19 +76,29 @@ function useTitlebarHoles() {
   }, []);
 }
 
+const icon = (d: string) => (
+  <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={d} />
+  </svg>
+);
+const NewFileIcon = icon("M11.5 2.5H6a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 6 17.5h8a1.5 1.5 0 0 0 1.5-1.5V6.5zM11.5 2.5v4h4M10 9v5M7.5 11.5h5");
+const OpenIcon = icon("M2.5 5.5a1.5 1.5 0 0 1 1.5-1.5h3.5l1.5 1.5h7a1.5 1.5 0 0 1 1.5 1.5v7.5a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5z");
+const SaveIcon = icon("M4 3.5h9.5l3 3V16a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5zM6.5 3.5v4h6v-4M6.5 16.5v-5h7v5");
+const SaveAsIcon = icon("M4 3.5h9.5l3 3V9M9 16.5H4a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5M6.5 3.5v4h6v-4M12 16.5l.5-2 4-4 1.5 1.5-4 4z");
+const ExportIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+    <path d="M3.5 15.5l4.5-4.5 4 4M13.5 13.5l2-2 5 5" />
+    <path d="M16 3v5M13.8 5.8L16 8l2.2-2.2" />
+  </svg>
+);
+
 const LibraryIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M4 4h4v16H4zM10 4h4v16h-4z" />
     <path d="M16.5 5.5l3.5 1-3.8 13.5-3.4-1" />
   </svg>
 );
-const ShareIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 3v12M7.5 7.5L12 3l4.5 4.5" />
-    <path d="M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2" />
-  </svg>
-);
-
 type DocumentInfo = { name?: string; folder?: string; fullscreen?: boolean };
 
 export function App({ session, langCode }: { session: Session; langCode: string }) {
@@ -99,8 +132,16 @@ export function App({ session, langCode }: { session: Session; langCode: string 
   const syncAppearance = (appState: { theme: string; viewBackgroundColor: string }) => {
     const key = `${appState.theme}|${appState.viewBackgroundColor}`;
     if (key === appearanceKey.current) return;
+    const themeChanged = !appearanceKey.current.startsWith(`${appState.theme}|`);
     appearanceKey.current = key;
     setTheme(appState.theme);
+    // Export in the theme you're looking at (the export dialog can still switch it).
+    if (themeChanged && api && api.getAppState().exportWithDarkMode !== (appState.theme === "dark")) {
+      api.updateScene({
+        appState: { exportWithDarkMode: appState.theme === "dark" },
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
+    }
     postNative({
       type: "appearance",
       theme: appState.theme,
@@ -111,9 +152,13 @@ export function App({ session, langCode }: { session: Session; langCode: string 
   const initialData = useMemo(() => {
     const scene = session.scene ?? {};
     const systemDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+    const preference = session.theme === "light" || session.theme === "dark" ? session.theme : "system";
+    const theme = preference === "system" ? (systemDark ? "dark" : "light") : preference;
+    themeState.preference = preference;
+    themeState.applied = theme;
     return {
       elements: scene.elements ?? [],
-      appState: { ...(scene.appState ?? {}), theme: session.theme ?? (systemDark ? "dark" : "light") },
+      appState: { ...(scene.appState ?? {}), theme, exportWithDarkMode: theme === "dark" },
       files: scene.files ?? {},
       scrollToContent: true,
     };
@@ -140,6 +185,10 @@ export function App({ session, langCode }: { session: Session; langCode: string 
         return;
       }
       installBridge(api);
+      installMacPolish();
+      watchSystemAppearance(api);
+      watchEditState(api);
+      setThemePreference(api, themeState.preference);
       syncAppearance(api.getAppState());
       postNative({ type: "ready" });
     };
@@ -171,19 +220,18 @@ export function App({ session, langCode }: { session: Session; langCode: string 
             <LibraryIcon />
           </button>
           <button
+            className="mac-export"
             aria-label={t.export}
             title={t.export}
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              postNative({ type: "exportMenu", x: r.left, y: r.bottom + 4 });
-            }}
+            onClick={() => api?.updateScene({ appState: { openDialog: { name: "imageExport" } } })}
           >
-            <ShareIcon />
+            <ExportIcon />
           </button>
         </div>
       )}
       onChange={(elements, appState) => {
         if (!api || appState.isLoading) return;
+        noteThemeChange(appState.theme);
         syncAppearance(appState);
         const version = getSceneVersion(elements);
         if (doc.savedVersion === null) doc.savedVersion = session.dirty ? -1 : version;
@@ -191,17 +239,25 @@ export function App({ session, langCode }: { session: Session; langCode: string 
         scheduleAutosave(api);
       }}
     >
+      <CommandPalette
+        customCommandPaletteItems={[
+          { label: t.newFile, category: "App", icon: NewFileIcon, shortcut: "⌘N", keywords: ["new", "file", "新增"], perform: menu("new") },
+          { label: t.open, category: "App", icon: OpenIcon, shortcut: "⌘O", keywords: ["open", "開啟"], perform: menu("open") },
+          { label: t.save, category: "App", icon: SaveIcon, shortcut: "⌘S", keywords: ["save", "儲存"], perform: menu("save") },
+          { label: t.saveAs, category: "App", icon: SaveAsIcon, shortcut: "⇧⌘S", keywords: ["save as", "另存"], perform: menu("saveAs") },
+        ]}
+      />
       <MainMenu>
-        <MainMenu.Item onSelect={menu("new")} shortcut="⌘N">
+        <MainMenu.Item icon={NewFileIcon} onSelect={menu("new")} shortcut="⌘N">
           {t.newFile}
         </MainMenu.Item>
-        <MainMenu.Item onSelect={menu("open")} shortcut="⌘O">
+        <MainMenu.Item icon={OpenIcon} onSelect={menu("open")} shortcut="⌘O">
           {t.open}
         </MainMenu.Item>
-        <MainMenu.Item onSelect={menu("save")} shortcut="⌘S">
+        <MainMenu.Item icon={SaveIcon} onSelect={menu("save")} shortcut="⌘S">
           {t.save}
         </MainMenu.Item>
-        <MainMenu.Item onSelect={menu("saveAs")} shortcut="⇧⌘S">
+        <MainMenu.Item icon={SaveAsIcon} onSelect={menu("saveAs")} shortcut="⇧⌘S">
           {t.saveAs}
         </MainMenu.Item>
         <MainMenu.DefaultItems.SaveAsImage />
@@ -214,7 +270,7 @@ export function App({ session, langCode }: { session: Session; langCode: string 
         <MainMenu.DefaultItems.ChangeCanvasBackground />
       </MainMenu>
       <WelcomeScreen>
-        <WelcomeScreen.Hints.MenuHint />
+        <WelcomeScreen.Hints.MenuHint>{t.menuHint}</WelcomeScreen.Hints.MenuHint>
         <WelcomeScreen.Hints.ToolbarHint />
         <WelcomeScreen.Hints.HelpHint />
         <WelcomeScreen.Center>
