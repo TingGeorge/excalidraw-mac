@@ -72,17 +72,30 @@ function autosaveKey(api: Api) {
   ].join("|");
 }
 
+/**
+ * The recovery copy is written once editing pauses for a few seconds (each write serializes the
+ * whole drawing), and right away when the window loses focus or the page goes away. Quitting
+ * asks the page for a fresh copy (get_autosave), so only a forced kill can lose those seconds.
+ */
+const AUTOSAVE_DELAY = 3000;
+
 export function scheduleAutosave(api: Api) {
   clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => flushAutosave(api), 700);
+  autosaveTimer = setTimeout(() => flushAutosave(api), AUTOSAVE_DELAY);
 }
 
 export function flushAutosave(api: Api) {
   clearTimeout(autosaveTimer);
+  autosaveTimer = undefined;
   const key = autosaveKey(api);
   if (key === lastAutosaveKey) return;
   lastAutosaveKey = key;
   postNative({ type: "autosave", ...autosaveSnapshot(api) });
+}
+
+/** Writes the recovery copy now if a change is waiting for the autosave delay. */
+export function flushPendingAutosave(api: Api) {
+  if (autosaveTimer !== undefined) flushAutosave(api);
 }
 
 // ---------------------------------------------------------------------------
@@ -609,6 +622,9 @@ function diagnostics(api: Api) {
     dirty: doc.dirty,
     sceneVersion: getSceneVersion(api.getSceneElementsIncludingDeleted()),
     activeTool: api.getAppState().activeTool.type,
+    zoom: api.getAppState().zoom.value,
+    // true while zooming draws from cached bitmaps (pinchZoom.ts)
+    zoomFromCache: api.getAppState().shouldCacheIgnoreZoom,
     // what exported images are named after, and whether they export dark
     exportName: api.getAppState().name,
     exportWithDarkMode: api.getAppState().exportWithDarkMode,

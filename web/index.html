@@ -13,6 +13,8 @@
     <script>
       // Fonts are loaded from next to this page (never from a CDN).
       window.EXCALIDRAW_ASSET_PATH = new URL(".", location.href).href;
+      // Draw the canvas at most once per frame, however many trackpad events arrive in it.
+      window.EXCALIDRAW_THROTTLE_RENDER = true;
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
