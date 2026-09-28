@@ -13,6 +13,7 @@ import {
   displayedBackground,
   doc,
   flushAutosave,
+  flushPendingAutosave,
   installBridge,
   noteThemeChange,
   scheduleAutosave,
@@ -23,6 +24,7 @@ import {
   watchSystemAppearance,
 } from "./bridge";
 import { installMacPolish } from "./macPolish";
+import { installPinchZoom } from "./pinchZoom";
 import { uiStrings } from "./i18n";
 import { postNative, type Session } from "./native";
 
@@ -178,6 +180,7 @@ export function App({ session, langCode }: { session: Session; langCode: string 
       }
       installBridge(api);
       installMacPolish();
+      installPinchZoom(api);
       watchSystemAppearance(api);
       watchEditState(api);
       setThemePreference(api, themeState.preference);
@@ -185,11 +188,15 @@ export function App({ session, langCode }: { session: Session; langCode: string 
       postNative({ type: "ready" });
     };
     waitForLoad();
+    // Write the recovery copy now (not after the autosave delay) when the user leaves the window.
     const flush = () => flushAutosave(api);
+    const flushPending = () => flushPendingAutosave(api);
     window.addEventListener("pagehide", flush);
+    window.addEventListener("blur", flushPending);
     return () => {
       cancelled = true;
       window.removeEventListener("pagehide", flush);
+      window.removeEventListener("blur", flushPending);
     };
   }, [api]);
 

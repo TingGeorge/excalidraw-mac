@@ -148,7 +148,7 @@ test("bridge operations", async (t) => {
   });
 
   await t.test("autosave", async () => {
-    await waitFor(() => h.messages.some((m) => m.type === "autosave"), 3000, "autosave");
+    await waitFor(() => h.messages.some((m) => m.type === "autosave"), 6000, "autosave");
     const last = h.messages.filter((m) => m.type === "autosave").at(-1);
     assert.equal(JSON.parse(last.scene).type, "excalidraw");
     assert.ok(["light", "dark"].includes(last.theme));
@@ -503,5 +503,98 @@ test("dark export without canvas filters (WebKit)", async (t) => {
   }));
   assert.match(dialog.text, /Dark mode/);
   assert.match(dialog.preview, /invert/);
+  assert.deepEqual(h.errors, []);
+});
+
+// Smooth and light on the Mac: an idle page that sleeps, trackpad pinch (Safari's gesture
+// events) that draws from cached bitmaps, a recovery copy that isn't rewritten on every pause.
+test("smooth and light", async (t) => {
+  const h = await startHarness({ lang: "en" });
+  t.after(() => h.close());
+  const p = h.page;
+  ok(await h.call("add_elements", { elements: [{ type: "rectangle", x: 0, y: 0, width: 200, height: 80, label: { text: "流程" } }] }));
+  /** requestAnimationFrame calls during `ms`: 0 means the page lets the Mac idle. */
+  const frameRequests = (ms) =>
+    p.evaluate((ms) => new Promise((resolve) => {
+      const raf = window.requestAnimationFrame;
+      let n = 0;
+      window.requestAnimationFrame = (cb) => (n++, raf(cb));
+      setTimeout(() => {
+        window.requestAnimationFrame = raf;
+        resolve(n);
+      }, ms);
+    }), ms);
+
+  await t.test("the page sleeps when nothing moves", async () => {
+    await new Promise((r) => setTimeout(r, 1000));
+    assert.equal(await frameRequests(1000), 0);
+  });
+
+  await t.test("the laser pointer still draws its trail, then the page sleeps again", async () => {
+    await p.mouse.click(640, 600);
+    await p.keyboard.press("k");
+    await p.mouse.move(500, 500);
+    await p.mouse.down();
+    for (let i = 1; i <= 10; i++) await p.mouse.move(500 + i * 20, 500 + i * 5);
+    const trail = await p.evaluate(() => [...document.querySelectorAll(".excalidraw svg path")].some((e) => (e.getAttribute("d") ?? "").length > 20));
+    await p.mouse.up();
+    assert.ok(trail, "laser trail drawn");
+    await p.keyboard.press("Escape");
+    await p.keyboard.press("v");
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.equal(await frameRequests(1000), 0);
+  });
+
+  await t.test("pinch: one zoom step per frame, sharp again when the fingers rest or lift", async () => {
+    await p.mouse.move(640, 400);
+    const r = await p.evaluate(async () => {
+      const diag = async () => JSON.parse(await window.excalidrawBridge.handle("diagnostics", "")).result;
+      const frame = () => new Promise((f) => requestAnimationFrame(() => requestAnimationFrame(f)));
+      const canvas = document.querySelector("canvas.interactive");
+      let steps = 0;
+      document.addEventListener("gesturechange", () => steps++);
+      const fire = (type, scale) => {
+        const e = new Event(type, { bubbles: true, cancelable: true });
+        e.scale = scale;
+        canvas.dispatchEvent(e);
+      };
+      const start = (await diag()).zoom;
+      fire("gesturestart", 1);
+      for (const scale of [1.1, 1.2, 1.3, 1.4, 1.5]) fire("gesturechange", scale); // one frame's worth
+      const sameFrame = steps;
+      await frame();
+      const moving = await diag();
+      const stepsAfterFrame = steps;
+      await new Promise((f) => setTimeout(f, 300));
+      const resting = await diag();
+      fire("gesturechange", 1.6);
+      fire("gestureend", 1.6); // lifted before the next frame: the last step still counts
+      await frame();
+      const lifted = await diag();
+      return { start, sameFrame, stepsAfterFrame, moving, resting, lifted };
+    });
+    assert.equal(r.sameFrame, 0, "no zoom step before the frame");
+    assert.equal(r.stepsAfterFrame, 1, "one zoom step for the frame");
+    assert.ok(Math.abs(r.moving.zoom - r.start * 1.5) < 0.01, `zoom ${r.moving.zoom} from ${r.start}`);
+    assert.equal(r.moving.zoomFromCache, true, "cached bitmaps while moving");
+    assert.equal(r.resting.zoomFromCache, false, "sharp when the fingers rest");
+    assert.ok(Math.abs(r.lifted.zoom - r.start * 1.6) < 0.01, `zoom ${r.lifted.zoom} from ${r.start}`);
+    assert.equal(r.lifted.zoomFromCache, false, "sharp when the fingers lift");
+  });
+
+  await t.test("recovery copy: after a pause of a few seconds, or right away when the window loses focus", async () => {
+    await new Promise((r) => setTimeout(r, 3500)); // let earlier changes be written
+    const count = () => h.messages.filter((m) => m.type === "autosave").length;
+    const before = count();
+    ok(await h.call("add_elements", { elements: [{ type: "ellipse", x: 300, y: 0, width: 100, height: 100 }] }));
+    await new Promise((r) => setTimeout(r, 1000));
+    assert.equal(count(), before, "not written during a short pause");
+    await p.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await waitFor(() => count() === before + 1, 1000, "autosave on blur");
+    await p.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(count(), before + 1, "nothing new to write");
+  });
+
   assert.deepEqual(h.errors, []);
 });
