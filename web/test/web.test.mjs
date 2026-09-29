@@ -598,3 +598,44 @@ test("smooth and light", async (t) => {
 
   assert.deepEqual(h.errors, []);
 });
+
+// WebKit stretches a colour emoji's bitmap when the canvas is scaled (blurry when zoomed in), so
+// text with an emoji is drawn at its on-screen size with the scale taken out (canvasEmoji.ts).
+test("emoji drawn at their on-screen size", async (t) => {
+  const h = await startHarness({ lang: "en" });
+  t.after(() => h.close());
+  const r = await h.page.evaluate(() => {
+    const canvas = (w, h) => Object.assign(document.createElement("canvas"), { width: w, height: h }).getContext("2d");
+    const pixels = (ctx) => ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height).data.join();
+    // Excalidraw's way: element font size, canvas scaled by zoom × pixel ratio, rotated too
+    const a = canvas(400, 200);
+    a.translate(20, 10);
+    a.rotate(0.1);
+    a.scale(5, 5);
+    a.font = "20px sans-serif";
+    a.fillStyle = "#1e1e1e";
+    a.textBaseline = "top";
+    const before = { font: a.font, t: a.getTransform().toString() };
+    a.fillText("🔒 repo", 2, 3);
+    const after = { font: a.font, t: a.getTransform().toString() };
+    // by hand: 100 px font, no scale in the transform, the position scaled
+    const b = canvas(400, 200);
+    b.translate(20, 10);
+    b.rotate(0.1);
+    b.font = "100px sans-serif";
+    b.fillStyle = "#1e1e1e";
+    b.textBaseline = "top";
+    b.fillText("🔒 repo", 10, 15);
+    // without an emoji nothing changes (this build's Chromium draws both the same anyway)
+    const c = canvas(400, 200);
+    c.scale(5, 5);
+    c.font = "20px sans-serif";
+    c.fillText("repo", 2, 3);
+    return { same: pixels(a) === pixels(b), drawn: pixels(a) !== pixels(canvas(400, 200)), before, after, plain: pixels(c) !== pixels(canvas(400, 200)) };
+  });
+  assert.ok(r.drawn, "something was drawn");
+  assert.ok(r.same, "same pixels as drawing at 100 px without the scale");
+  assert.deepEqual(r.after, r.before, "font and transform restored");
+  assert.ok(r.plain, "text without emoji still drawn");
+  assert.deepEqual(h.errors, []);
+});
