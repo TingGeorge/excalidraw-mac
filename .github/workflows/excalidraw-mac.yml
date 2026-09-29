@@ -73,6 +73,11 @@ jobs:
           EXCALIDRAW_APP_PATH: ${{ env.APP }}
         run: node --test test/ui-mac.test.mjs
 
+      - name: Idle energy report (CPU time and wakeups of the app while nobody touches it)
+        working-directory: web
+        continue-on-error: true
+        run: node test/energy-mac.mjs
+
       - name: WebKit diagnostics, screenshot + OCR of the running app
         working-directory: web
         run: |

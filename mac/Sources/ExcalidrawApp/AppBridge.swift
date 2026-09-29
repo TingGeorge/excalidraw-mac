@@ -74,6 +74,8 @@ final class AppBridge {
                     "trafficLightsStart": .double(
                         Double(canvas.window.standardWindowButton(.closeButton).map { $0.convert($0.bounds, to: nil).minX } ?? -1)),
                     "trafficLightsEnd": .double(Double(canvas.trafficLightsEnd)),
+                    "trafficLightPasses": .int(canvas.trafficLightPasses),
+                    "trafficLightMoves": .int(canvas.trafficLightMoves),
                     // Middle of the traffic lights, from the top of the window (the row's middle is 26).
                     "trafficLightsMiddle": .double(
                         Double(
