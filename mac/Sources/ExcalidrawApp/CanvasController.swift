@@ -98,6 +98,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         guard !positioningTrafficLights, !window.styleMask.contains(.fullScreen), buttons.count == 3 else { return }
         positioningTrafficLights = true
         defer { positioningTrafficLights = false }
+        trafficLightPasses += 1
         watchTrafficLights(buttons)
         if trafficLightSpacing == nil {
             // AppKit's own distance between the buttons, before we move them.
@@ -115,7 +116,10 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             var frame = view.frame
             frame.size.height = max(frame.height, Self.titlebarHeight)
             frame.origin.y = window.frame.height - frame.height
-            if view.frame != frame { view.frame = frame }
+            if view.frame != frame {
+                view.frame = frame
+                trafficLightMoves += 1
+            }
         }
         let spacing = trafficLightSpacing ?? 20
         for (index, button) in buttons.enumerated() {
@@ -128,6 +132,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             let origin = parent.convert(target, from: nil).origin
             if abs(button.frame.minX - origin.x) > 0.25 || abs(button.frame.minY - origin.y) > 0.25 {
                 button.setFrameOrigin(origin)
+                trafficLightMoves += 1
             }
         }
         let end = buttons[2].convert(buttons[2].bounds, to: nil).maxX
@@ -144,6 +149,10 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     private var positioningTrafficLights = false
+    /// How often the traffic lights were placed / actually moved (window_info): a window nobody
+    /// touches should do neither.
+    private(set) var trafficLightPasses = 0
+    private(set) var trafficLightMoves = 0
     /// AppKit's distance between the traffic lights (close → minimise → zoom).
     private var trafficLightSpacing: CGFloat?
     private var watchedTitlebarViews: [ObjectIdentifier: NSObjectProtocol] = [:]
