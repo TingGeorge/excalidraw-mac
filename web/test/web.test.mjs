@@ -639,3 +639,25 @@ test("emoji drawn at their on-screen size", async (t) => {
   assert.ok(r.plain, "text without emoji still drawn");
   assert.deepEqual(h.errors, []);
 });
+
+// The library is shared by all windows: the app passes one window's change on to the others
+// (set_library), and a window doesn't send what it got back to the app.
+test("library shared between windows", async (t) => {
+  const h = await startHarness({ lang: "en" });
+  t.after(() => h.close());
+  const item = {
+    id: "lib-1", status: "unpublished", created: 1,
+    elements: [{ id: "r", type: "rectangle", x: 0, y: 0, width: 40, height: 30, angle: 0, strokeColor: "#1e1e1e",
+      backgroundColor: "transparent", fillStyle: "solid", strokeWidth: 2, strokeStyle: "solid", roughness: 1, opacity: 100,
+      groupIds: [], frameId: null, roundness: null, seed: 1, version: 1, versionNonce: 1, isDeleted: false,
+      boundElements: null, updated: 1, link: null, locked: false }],
+  };
+  const posted = () => h.messages.filter((m) => m.type === "library").length;
+  await new Promise((r) => setTimeout(r, 500));
+  const before = posted();
+  ok(await h.call("set_library", { items: JSON.stringify([item]) }));
+  ok(await h.call("toggle_library"));
+  await waitFor(() => h.page.evaluate(() => document.querySelectorAll(".library-unit").length > 0), 5000, "library item shown");
+  assert.equal(posted(), before, "not sent back to the app");
+  assert.deepEqual(h.errors, []);
+});

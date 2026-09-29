@@ -3,7 +3,8 @@ import AppKit
 import BridgeCore
 
 /// Listens on the Unix socket for the MCP server (excalidraw-mcp) and passes its requests to
-/// the page. Only canvas operations are allowed: agents can't open, save or export files.
+/// the page of the frontmost drawing window. Only canvas operations are allowed: agents can't
+/// open, save or export files.
 @MainActor
 final class AppBridge {
     /// Methods that work even when no drawing is open.
@@ -14,13 +15,17 @@ final class AppBridge {
         "delete_elements", "clear_canvas", "export_image", "zoom_to_fit",
     ]
 
-    private let canvas: CanvasController
-    private let store: Store
+    /// The drawing window agents work on (the frontmost one), nil when no drawing is open.
+    private let canvas: () -> CanvasController?
+    /// Every drawing window (window_info, for tests).
+    private let canvases: () -> [CanvasController]
     private var server: LineServer?
+    /// Called on the main thread when an agent connects or the last one disconnects.
+    var onAgentConnected: ((Bool) -> Void)?
 
-    init(canvas: CanvasController, store: Store) {
+    init(canvas: @escaping () -> CanvasController?, canvases: @escaping () -> [CanvasController]) {
         self.canvas = canvas
-        self.store = store
+        self.canvases = canvases
     }
 
     func start() throws {
@@ -31,7 +36,7 @@ final class AppBridge {
             }
         }
         server.onConnectionsChanged = { [weak self] count in
-            Task { @MainActor in self?.canvas.setAgentConnected(count > 0) }
+            Task { @MainActor in self?.onAgentConnected?(count > 0) }
         }
         try server.start()
         self.server = server
@@ -39,6 +44,10 @@ final class AppBridge {
 
     func stop() {
         server?.stop()
+    }
+
+    private static var visibleWindows: Int {
+        NSApp.windows.filter { $0.isVisible && !($0 is NSPanel) }.count
     }
 
     private func handle(_ line: String, reply: @escaping (String) -> Void) {
@@ -52,7 +61,16 @@ final class AppBridge {
             }
         }
 
-        // Agents work on the drawing the user has open; they never open or save files.
+        // Agents work on the drawing the user has open (the frontmost one); they never open or
+        // save files.
+        guard let canvas = canvas() ?? canvases().first else {
+            if method == "window_info" { return respond(.success(["visibleWindows": .int(Self.visibleWindows)])) }
+            return respond(
+                .failure(
+                    BridgeError(
+                        "No drawing is open in Excalidraw. Ask the user to create a new file (File > New File…) or open one in the app, then try again."
+                    )))
+        }
         if !Self.anytime.contains(method) && !canvas.hasDocument {
             return respond(
                 .failure(
@@ -104,8 +122,10 @@ final class AppBridge {
                             return chain.joined(separator: " < ")
                         }.joined(separator: "\n")),
                     "appearance": .string(canvas.window.effectiveAppearance.name == .darkAqua ? "dark" : "light"),
-                    // Only one of the drawing window and the start screen should ever show.
-                    "visibleWindows": .int(NSApp.windows.filter { $0.isVisible && !($0 is NSPanel) }.count),
+                    // The drawing windows or the start screen, never both.
+                    "visibleWindows": .int(Self.visibleWindows),
+                    // Every drawing open, frontmost first.
+                    "files": .array(canvases().compactMap { $0.file.map { .string($0.path) } }),
                 ]))
 
         case "get_scene":
@@ -113,8 +133,8 @@ final class AppBridge {
                 respond(
                     result.map { scene in
                         var o = scene.object ?? [:]
-                        o["file"] = self.store.currentFile.map { .string($0.path) } ?? .null
-                        o["dirty"] = .bool(self.store.dirty)
+                        o["file"] = canvas.file.map { .string($0.path) } ?? .null
+                        o["dirty"] = .bool(canvas.dirty)
                         return .object(o)
                     })
             }

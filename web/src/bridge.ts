@@ -98,6 +98,33 @@ export function flushPendingAutosave(api: Api) {
   if (autosaveTimer !== undefined) flushAutosave(api);
 }
 
+/**
+ * The library is shared by all windows: a change here goes to the app, which passes it on to
+ * the other windows (set_library). What came from the app isn't sent back to it. Excalidraw
+ * stamps items with a new version and time whenever it loads them, so libraries are compared by
+ * what the user can change: the items, their names and status, the shapes in them.
+ */
+let lastLibrary: string | null = null;
+
+type LibraryItem = { id?: string; status?: string; name?: string; elements?: { id?: string }[] };
+const libraryKey = (items: readonly unknown[]) =>
+  JSON.stringify((items as LibraryItem[]).map((i) => [i.id, i.status, i.name ?? null, (i.elements ?? []).map((e) => e.id)]));
+
+export function saveLibrary(items: readonly unknown[]) {
+  const key = libraryKey(items);
+  if (key === lastLibrary) return;
+  lastLibrary = key;
+  postNative({ type: "library", items: JSON.stringify(items) });
+}
+
+function setLibrary(api: Api, p: Params) {
+  const items = JSON.parse(p.items);
+  if (!Array.isArray(items)) throw new Error("`items` must be a JSON array");
+  lastLibrary = libraryKey(items);
+  api.updateLibrary({ libraryItems: items, merge: false });
+  return {};
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 
@@ -684,6 +711,7 @@ const ops: Record<string, (api: Api, p: Params) => unknown> = {
     setThemePreference(api, p.preference);
     return {};
   },
+  set_library: setLibrary,
   toggle_library: (api) => {
     api.toggleSidebar({ name: "default", tab: "library" });
     return {};
