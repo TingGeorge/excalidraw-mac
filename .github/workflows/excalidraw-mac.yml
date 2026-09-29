@@ -78,6 +78,10 @@ jobs:
         continue-on-error: true
         run: node test/energy-mac.mjs
 
+      - name: Emoji sharp on a zoomed-in canvas (screenshot emoji-zoom in the log)
+        working-directory: web
+        run: node test/emoji-mac.mjs
+
       - name: WebKit diagnostics, screenshot + OCR of the running app
         working-directory: web
         run: |
@@ -146,7 +150,7 @@ jobs:
         if: always()
         run: |
           # Crop to the window (centred on screen) and keep it small.
-          for name in screen start-light start-dark edit-pasted export-dialog canvas-dark canvas-small settings; do
+          for name in emoji-zoom screen start-light start-dark edit-pasted export-dialog canvas-dark canvas-small settings; do
             f="$RUNNER_TEMP/$name.png"; [ -f "$f" ] || continue
             case "$name" in
               screen) crop="880 1340"; size=760 ;;
