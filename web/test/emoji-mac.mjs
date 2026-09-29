@@ -30,7 +30,12 @@ await sleep(1000);
 await bridge("add_elements", {
   elements: [{ type: "text", id: "emoji-check", x: -3000, y: -3000, text: "🔒 private repo 🙂", fontSize: 20 }],
 });
-await bridge("zoom_to_fit", { element_ids: ["emoji-check"] });
+await bridge("zoom_to_fit", { element_ids: ["emoji-check"] }); // centred, at 100% at most
+// ⌘= (View › Zoom In) until the canvas is scaled 4× or more, like the 268% that showed it
+for (let i = 0; i < 40 && (await bridge("diagnostics")).zoom < 4; i++) {
+  execFileSync("osascript", ["-e", 'tell application "System Events" to keystroke "=" using command down']);
+  await sleep(150);
+}
 await sleep(1500);
 console.log("zoom", (await bridge("diagnostics")).zoom);
 if (process.env.RUNNER_TEMP) execFileSync("screencapture", ["-x", join(process.env.RUNNER_TEMP, "emoji-zoom.png")]);
