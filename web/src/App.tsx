@@ -16,6 +16,7 @@ import {
   flushPendingAutosave,
   installBridge,
   noteThemeChange,
+  saveLibrary,
   scheduleAutosave,
   setDirty,
   setThemePreference,
@@ -158,12 +159,12 @@ export function App({ session, langCode }: { session: Session; langCode: string 
     };
   }, [session]);
 
-  // Library items are kept by the app in its support folder.
+  // Library items are kept by the app in its support folder, shared by all windows.
   useHandleLibrary({
     excalidrawAPI: api,
     adapter: {
       load: () => ({ libraryItems: session.library ?? [] }),
-      save: ({ libraryItems }) => postNative({ type: "library", items: JSON.stringify(libraryItems) }),
+      save: ({ libraryItems }) => saveLibrary(libraryItems),
     },
   });
 

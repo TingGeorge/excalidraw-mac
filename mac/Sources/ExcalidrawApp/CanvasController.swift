@@ -9,13 +9,19 @@ extension UTType {
     static let excalidrawScene = UTType(exportedAs: "io.github.tinggeorge.excalidraw.scene", conformingTo: .json)
 }
 
-/// The drawing window (the Excalidraw page) and the document commands (new / open / save / export).
+/// A drawing window (the Excalidraw page with one file) and its document commands (save /
+/// export / close). The app has one of these per open file, plus a spare with the page already
+/// loaded so the next file opens right away.
 @MainActor
 final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
     WKScriptMessageHandler, WKDownloadDelegate
 {
     let store: Store
     let window: NSWindow
+    /// The drawing shown in this window (nil: the spare, not showing anything yet).
+    private(set) var file: URL?
+    /// Unsaved changes.
+    private(set) var dirty = false
     let webView: WKWebView
     private var ready = false
     private var whenReady: [() -> Void] = []
@@ -257,12 +263,13 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             whenReady = []
             queued.forEach { $0() }
         case "dirty":
-            store.setDirty(body["value"] as? Bool ?? false)
+            dirty = body["value"] as? Bool ?? false
+            if let file { store.setDirty(dirty, for: file) }
             updateTitle()
         case "autosave":
-            if let scene = body["scene"] as? String { store.saveAutosave(scene: scene, theme: body["theme"] as? String) }
+            if let scene = body["scene"] as? String, let file { store.saveAutosave(scene: scene, for: file) }
         case "library":
-            if let items = body["items"] as? String { store.saveLibrary(items) }
+            if let items = body["items"] as? String { onLibrary?(self, items) }
         case "titlebarHoles":
             let rects = body["rects"] as? [[Double]] ?? []
             dragArea.holes = rects.compactMap { r in
@@ -281,8 +288,8 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             (webView as? CanvasWebView)?.textEditing = editState.textEditing
         case "menu":
             switch body["action"] as? String {
-            case "new": createDocument()
-            case "open": openDocument()
+            case "new": onNewDocument?()
+            case "open": onOpenDocument?()
             case "save": save()
             case "saveAs": saveAs()
             default: break
@@ -297,13 +304,20 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     // Every drawing is a file the user chose: New asks for a folder and a name and creates the
     // file right away; only ⌘S writes to it. Agents edit the canvas but never save or open files.
 
-    /// Called when a drawing is opened or closed (the app shows / hides the start screen).
-    var onDocumentChanged: (() -> Void)?
+    /// Called when this window's drawing is closed (the window is gone for good).
+    var onClosed: ((CanvasController) -> Void)?
+    /// Called when this window becomes the one the menus and agents act on.
+    var onActivated: ((CanvasController) -> Void)?
+    /// File > New / Open picked in the page's own menu.
+    var onNewDocument: (() -> Void)?
+    var onOpenDocument: (() -> Void)?
+    /// The page's library changed (it is shared by all windows).
+    var onLibrary: ((CanvasController, String) -> Void)?
 
-    var hasDocument: Bool { store.currentFile != nil }
+    var hasDocument: Bool { file != nil }
 
     var displayName: String {
-        store.currentFile?.lastPathComponent ?? "Excalidraw"
+        file?.lastPathComponent ?? "Excalidraw"
     }
 
     /// The page shows the file name and folder in the title bar row; the window title (hidden)
@@ -311,18 +325,18 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     func updateTitle() {
         // Each of these makes AppKit lay out the title bar again (and move the traffic lights):
         // only set what changed, then put the lights back.
-        let title = store.currentFile?.deletingPathExtension().lastPathComponent ?? "Excalidraw"
+        let title = file?.deletingPathExtension().lastPathComponent ?? "Excalidraw"
         var changed = false
         if window.title != title {
             window.title = title
             changed = true
         }
-        if window.representedURL != store.currentFile {
-            window.representedURL = store.currentFile
+        if window.representedURL != file {
+            window.representedURL = file
             changed = true
         }
-        if window.isDocumentEdited != store.dirty {
-            window.isDocumentEdited = store.dirty
+        if window.isDocumentEdited != dirty {
+            window.isDocumentEdited = dirty
             changed = true
         }
         if changed { repositionTrafficLights() }
@@ -334,7 +348,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             "fullscreen": .bool(window.styleMask.contains(.fullScreen)),
             "trafficLightsEnd": .double(Double(trafficLightsEnd)),
         ]
-        if let file = store.currentFile {
+        if let file {
             info["name"] = .string(file.deletingPathExtension().lastPathComponent)
             info["folder"] = .string((file.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
         }
@@ -349,7 +363,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     /// Before closing the drawing or replacing it with another one: offer to save unsaved
     /// changes. true = go ahead ("Save" succeeded or "Don't Save").
     func confirmClosing(completion: @escaping (Bool) -> Void) {
-        guard hasDocument, store.dirty else { return completion(true) }
+        guard hasDocument, dirty else { return completion(true) }
         let alert = NSAlert()
         alert.messageText = L10n.t(
             "Do you want to save the changes made to “\(displayName)”?", "要儲存對「\(displayName)」所做的變更嗎？")
@@ -367,53 +381,12 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         }
     }
 
-    /// File > New: pick a folder and a name, create the file there, open it.
-    func createDocument() {
-        confirmClosing { ok in
-            guard ok else { return }
-            let panel = NSSavePanel()
-            panel.title = L10n.t("New Excalidraw File", "新增 Excalidraw 檔案")
-            panel.message = L10n.t("Choose a folder and a name for your drawing.", "選擇要存放繪圖的資料夾，並輸入檔名。")
-            panel.prompt = L10n.t("Create", "建立")
-            panel.allowedContentTypes = [.excalidrawScene]
-            panel.canCreateDirectories = true
-            panel.nameFieldStringValue = "\(L10n.t("Untitled", "未命名")).excalidraw"
-            panel.begin { response in
-                guard response == .OK, let url = panel.url else { return }
-                do {
-                    try Data(Self.emptyScene.utf8).write(to: url, options: .atomic)
-                } catch {
-                    return self.showError(
-                        BridgeError(
-                            L10n.t(
-                                "Could not create \(url.path): \(error.localizedDescription)",
-                                "無法建立 \(url.path)：\(error.localizedDescription)")))
-                }
-                self.open(url) { error in if let error { self.showError(error) } }
-            }
-        }
-    }
-
     static let emptyScene = """
         {"type":"excalidraw","version":2,"source":"Excalidraw for Mac","elements":[],\
         "appState":{"gridSize":20,"viewBackgroundColor":"#ffffff"},"files":{}}
         """
 
-    /// File > Open.
-    func openDocument() {
-        confirmClosing { ok in
-            guard ok else { return }
-            let panel = NSOpenPanel()
-            panel.allowedContentTypes = [.excalidrawScene, .json]
-            panel.allowsMultipleSelection = false
-            panel.begin { response in
-                guard response == .OK, let url = panel.url else { return }
-                self.open(url) { error in if let error { self.showError(error) } }
-            }
-        }
-    }
-
-    /// Shows `url` in the canvas (callers ask about unsaved changes first). If the app was killed
+    /// Shows `url` in this window, which shows nothing yet (the spare). If the app was killed
     /// while this file had unsaved changes, those changes come back (still unsaved).
     func open(_ url: URL, completion: @escaping (BridgeError?) -> Void) {
         let recovered = store.recoveredScene(for: url)
@@ -434,12 +407,13 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         call("load_scene_json", ["json": .string(text), "dirty": .bool(recovered != nil)]) { result in
             switch result {
             case .success:
+                self.file = url
+                self.dirty = recovered != nil
                 self.store.documentOpened(url, dirty: recovered != nil)
                 if recovered == nil { self.refreshThumbnail() }
                 self.updateTitle()
                 NSDocumentController.shared.noteNewRecentDocumentURL(url)
                 self.show()
-                self.onDocumentChanged?()
                 if recovered != nil {
                     let alert = NSAlert()
                     alert.messageText = L10n.t("Unsaved changes restored", "已恢復未儲存的變更")
@@ -459,24 +433,39 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         }
     }
 
-    /// Closes the drawing (after asking about unsaved changes) and goes back to the start screen.
+    /// Closes the drawing and its window (after asking about unsaved changes).
     func closeDocument(completion: ((Bool) -> Void)? = nil) {
         confirmClosing { ok in
             guard ok else {
                 completion?(false)
                 return
             }
-            self.store.documentClosed()
-            self.window.orderOut(nil)
-            self.updateTitle()
-            self.call("new_scene") { _ in }
-            self.onDocumentChanged?()
+            if let file = self.file { self.store.documentClosed(file) }
+            self.tearDown()
             completion?(true)
         }
     }
 
+    /// The window goes away for good: the page and its web process too.
+    func tearDown() {
+        guard !tornDown else { return }
+        tornDown = true
+        file = nil
+        whenReady = []
+        for observer in watchedTitlebarViews.values { NotificationCenter.default.removeObserver(observer) }
+        watchedTitlebarViews = [:]
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "native")
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        window.delegate = nil
+        window.close()
+        onClosed?(self)
+    }
+
+    private var tornDown = false
+
     func save(completion: ((Bool) -> Void)? = nil) {
-        guard let url = store.currentFile else {
+        guard let url = file else {
             completion?(false)
             return
         }
@@ -492,7 +481,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         panel.allowedContentTypes = [.excalidrawScene]
         panel.canCreateDirectories = true
         panel.nameFieldStringValue = displayName
-        panel.directoryURL = store.currentFile?.deletingLastPathComponent()
+        panel.directoryURL = file?.deletingLastPathComponent()
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else {
                 completion?(false)
@@ -522,7 +511,9 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                                 "無法儲存 \(url.path)：\(error.localizedDescription)")))
                 }
                 self.call("mark_saved") { _ in
-                    self.store.documentOpened(url, dirty: false)
+                    self.store.documentMoved(from: self.file ?? url, to: url, dirty: false)
+                    self.file = url
+                    self.dirty = false
                     self.refreshThumbnail()
                     self.updateTitle()
                     NSDocumentController.shared.noteNewRecentDocumentURL(url)
@@ -534,7 +525,7 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
 
     /// Updates the start screen's preview of the open file (an empty drawing has none).
     private func refreshThumbnail() {
-        guard let file = store.currentFile else { return }
+        guard let file else { return }
         call("export_image", ["format": "png", "max_size": 480, "background": true, "padding": 32]) { result in
             let png = (try? result.get())?["base64"]?.string.flatMap { Data(base64Encoded: $0) }
             self.store.saveThumbnail(png, for: file)
@@ -658,8 +649,8 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         }
         guard ready, hasDocument else { return finish() }
         call("get_autosave") { result in
-            if case .success(let r) = result, let scene = r["scene"]?.string {
-                self.store.saveAutosave(scene: scene, theme: r["theme"]?.string)
+            if case .success(let r) = result, let scene = r["scene"]?.string, let file = self.file {
+                self.store.saveAutosave(scene: scene, for: file)
             }
             finish()
         }
@@ -680,10 +671,17 @@ final class CanvasController: NSObject, NSWindowDelegate, WKNavigationDelegate, 
 
     // MARK: NSWindowDelegate
 
-    /// Closing the window closes the drawing and returns to the start screen.
+    /// Closing the window closes its drawing (the start screen shows when none is left).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         closeDocument()
         return false
+    }
+
+    func windowDidBecomeMain(_ notification: Notification) { onActivated?(self) }
+
+    /// The shared library changed in another window.
+    func setLibrary(_ items: String) {
+        call("set_library", ["items": .string(items)]) { _ in }
     }
 
     // MARK: Navigation: keep the page local, open links in the browser, handle downloads

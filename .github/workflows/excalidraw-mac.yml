@@ -73,6 +73,12 @@ jobs:
           EXCALIDRAW_APP_PATH: ${{ env.APP }}
         run: node --test test/ui-mac.test.mjs
 
+      - name: One window per drawing (a second file, agents on the frontmost, ⌘W)
+        working-directory: web
+        env:
+          EXCALIDRAW_APP_PATH: ${{ env.APP }}
+        run: node --test test/windows-mac.test.mjs
+
       - name: Idle energy report (CPU time and wakeups of the app while nobody touches it)
         working-directory: web
         continue-on-error: true

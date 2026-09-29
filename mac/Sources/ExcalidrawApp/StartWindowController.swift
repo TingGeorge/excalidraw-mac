@@ -209,9 +209,8 @@ final class StartWindowController: NSObject, NSWindowDelegate {
     private func reloadRecent() {
         list.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let query = search.stringValue.trimmingCharacters(in: .whitespaces).lowercased()
-        var files: [(URL, Bool)] = []
-        if let file = store.recoverableFile { files.append((file, true)) }
-        for url in store.recentFiles where url != store.recoverableFile {
+        var files: [(URL, Bool)] = store.recoverableFiles.map { ($0, true) }
+        for url in store.recentFiles where !store.recoverableFiles.contains(url) {
             if FileManager.default.fileExists(atPath: url.path) { files.append((url, false)) }
         }
         let shown = files.filter { query.isEmpty || $0.0.path.lowercased().contains(query) }.prefix(20)
