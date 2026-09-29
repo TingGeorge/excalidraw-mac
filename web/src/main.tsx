@@ -1,6 +1,6 @@
 // First: Excalidraw checks for canvas filters when it loads.
 import "./canvasFilter";
-// import "./canvasEmoji"; // off for one CI run: a before screenshot
+import "./canvasEmoji";
 import { createRoot } from "react-dom/client";
 import "@excalidraw/excalidraw/index.css";
 import "./mac.css";
