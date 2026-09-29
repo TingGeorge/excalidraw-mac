@@ -122,6 +122,7 @@ for (let i = 0; i < 50; i++) {
   const points = Array.from({ length: 40 }, (_, k) => [k * 3, Math.sin(k / 4) * 20]);
   elements.push({ type: "line", x: (i % 10) * 150, y: 2000 + Math.floor(i / 10) * 80, points });
 }
+elements.forEach((e, i) => (e.id = `energy-${i}`));
 await bridge("add_elements", { elements });
 await bridge("zoom_to_fit");
 await sleep(2000);
@@ -133,4 +134,8 @@ await sleep(2000);
 await measure("big drawing: window behind Finder, idle");
 await measure("big drawing: behind Finder, mouse moving over where the canvas shows", hover);
 osa('tell application "Excalidraw" to activate');
+// Leave the drawing as the next steps expect it.
+await bridge("delete_elements", { ids: elements.map((e) => e.id) });
+await bridge("zoom_to_fit");
 await sleep(1000);
+console.log("\nelements:", (await bridge("status")).elementCount);

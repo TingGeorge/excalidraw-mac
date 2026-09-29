@@ -5,13 +5,13 @@
    keep Excalidraw's solid backgrounds. */
 .excalidraw {
   --mac-accent: #6965db;
-  --mac-glass-bg: rgba(255, 255, 255, 0.8);
+  --mac-glass-bg: rgba(255, 255, 255, 0.94);
   --mac-glass-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
   --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Hiragino Sans", system-ui, sans-serif;
   --border-radius-lg: 10px;
 }
 .excalidraw.theme--dark {
-  --mac-glass-bg: rgba(44, 44, 50, 0.8);
+  --mac-glass-bg: rgba(44, 44, 50, 0.94);
   --mac-glass-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
@@ -114,15 +114,13 @@
   border-radius: 10px;
   font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", system-ui, sans-serif;
   color: #3a3a3c;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
   pointer-events: none;
 }
 .agent-status.dark {
   color: #d7d8de;
-  background: rgba(44, 44, 50, 0.8);
+  background: rgba(44, 44, 50, 0.94);
   box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 .agent-status::before {
@@ -133,7 +131,9 @@
   background: #34c759;
 }
 
-/* Toolbar, zoom, undo/redo and help: frosted glass. */
+/* Toolbar, zoom, undo/redo and help: glass, nearly opaque. No backdrop-filter blur on these
+   floating groups: WebKit re-blurs each one on every canvas frame while panning or drawing,
+   which kept the GPU process busy (energy report, test/energy-mac.mjs). */
 .excalidraw .Island.App-toolbar,
 .excalidraw .help-icon,
 .excalidraw .zoom-actions,
@@ -141,8 +141,6 @@
   background-color: var(--mac-glass-bg);
   box-shadow: var(--mac-glass-shadow);
   border-radius: var(--border-radius-lg);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
 }
 /* Excalidraw paints these buttons with !important; only !important overrides it. */
 .excalidraw .zoom-actions .zoom-button,
@@ -182,10 +180,8 @@
   gap: 1px;
   z-index: 3;
   border-radius: 10px;
-  background-color: rgba(255, 255, 255, 0.8);
+  background-color: rgba(255, 255, 255, 0.94);
   box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
   pointer-events: none;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", system-ui, sans-serif;
   line-height: 16px;
@@ -216,7 +212,7 @@
 }
 .mac-title.dark {
   color: #ececf1;
-  background-color: rgba(44, 44, 50, 0.8);
+  background-color: rgba(44, 44, 50, 0.94);
   box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 .mac-title.dark .folder {
@@ -231,8 +227,6 @@
   border-radius: var(--border-radius-lg);
   background-color: var(--mac-glass-bg);
   box-shadow: var(--mac-glass-shadow);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
 }
 .mac-top-actions button {
   width: 32px;
